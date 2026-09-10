@@ -1,0 +1,3828 @@
+<title>RAID Log Tracker</title>
+<style>
+  /* ============ TOKENS ============ */
+  :root{
+    color-scheme: light;
+    --bg: #f6f6f3;
+    --plane: #f1f1ed;
+    --surface: #ffffff;
+    --surface-2: #eef0ea;
+    --border: rgba(20,26,38,0.11);
+    --border-strong: rgba(20,26,38,0.18);
+    --text-primary: #14181f;
+    --text-secondary: #565f6d;
+    --text-muted: #8a92a0;
+    --ink-on-accent: #ffffff;
+
+    --accent: #1e3a5f;         /* deep ledger navy - nav / structural accent */
+    --accent-strong: #142845;
+    --accent-soft: rgba(30,58,95,0.08);
+    --sidebar-bg: #142845;     /* fixed dark navy chrome - deliberately does not invert with theme */
+    --action: #a8631f;         /* brass - primary call to action only */
+    --action-strong: #8a4f16;
+    --action-soft: rgba(168,99,31,0.12);
+
+    /* RAID type identity (categorical, fixed order - never reassign) */
+    --type-risk: #2a78d6;
+    --type-assumption: #eb6834;
+    --type-issue: #1baf7a;
+    --type-dependency: #c98d00;
+
+    /* status / severity (fixed, never themed) */
+    --sev-critical: #d03b3b;
+    --sev-high: #ec835a;
+    --sev-medium: #d3900f;
+    --sev-low: #0ca30c;
+
+    --shadow-soft: 0 1px 2px rgba(20,26,38,0.06), 0 8px 24px -12px rgba(20,26,38,0.18);
+    --shadow-modal: 0 24px 64px -16px rgba(10,14,20,0.35);
+    --radius-s: 6px;
+    --radius-m: 10px;
+    --radius-l: 16px;
+    --font-display: "Libre Franklin", system-ui, sans-serif;
+    --font-body: "Source Sans 3", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      color-scheme: dark;
+      --bg: #101318;
+      --plane: #0c0e12;
+      --surface: #171b21;
+      --surface-2: #1d222a;
+      --border: rgba(255,255,255,0.10);
+      --border-strong: rgba(255,255,255,0.18);
+      --text-primary: #f0f2f5;
+      --text-secondary: #b7bec9;
+      --text-muted: #7c8492;
+      --ink-on-accent: #ffffff;
+
+      --accent: #7fa1cf;
+      --accent-strong: #a9c3e3;
+      --accent-soft: rgba(127,161,207,0.14);
+      --action: #d9a24d;
+      --action-strong: #ecb968;
+      --action-soft: rgba(217,162,77,0.16);
+
+      --type-risk: #3987e5;
+      --type-assumption: #d95926;
+      --type-issue: #199e70;
+      --type-dependency: #c98500;
+
+      --sev-critical: #e66767;
+      --sev-high: #ec835a;
+      --sev-medium: #e0a838;
+      --sev-low: #0ca30c;
+
+      --shadow-soft: 0 1px 2px rgba(0,0,0,0.4), 0 8px 24px -12px rgba(0,0,0,0.5);
+      --shadow-modal: 0 24px 64px -16px rgba(0,0,0,0.6);
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme: dark;
+    --bg: #101318;
+    --plane: #0c0e12;
+    --surface: #171b21;
+    --surface-2: #1d222a;
+    --border: rgba(255,255,255,0.10);
+    --border-strong: rgba(255,255,255,0.18);
+    --text-primary: #f0f2f5;
+    --text-secondary: #b7bec9;
+    --text-muted: #7c8492;
+    --ink-on-accent: #ffffff;
+
+    --accent: #7fa1cf;
+    --accent-strong: #a9c3e3;
+    --accent-soft: rgba(127,161,207,0.14);
+    --action: #d9a24d;
+    --action-strong: #ecb968;
+    --action-soft: rgba(217,162,77,0.16);
+
+    --type-risk: #3987e5;
+    --type-assumption: #d95926;
+    --type-issue: #199e70;
+    --type-dependency: #c98500;
+
+    --sev-critical: #e66767;
+    --sev-high: #ec835a;
+    --sev-medium: #e0a838;
+    --sev-low: #0ca30c;
+
+    --shadow-soft: 0 1px 2px rgba(0,0,0,0.4), 0 8px 24px -12px rgba(0,0,0,0.5);
+    --shadow-modal: 0 24px 64px -16px rgba(0,0,0,0.6);
+  }
+
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1,h2,h3,h4{ font-family: var(--font-display); margin:0; text-wrap: balance; letter-spacing: -0.01em; }
+  button, input, select, textarea{ font-family: inherit; font-size: inherit; color: inherit; }
+  button{ cursor:pointer; }
+  ::selection{ background: var(--accent-soft); }
+  a{ color: inherit; }
+  .mono{ font-family: var(--font-mono); }
+  .tabular{ font-variant-numeric: tabular-nums; }
+
+  /* focus */
+  :focus-visible{ outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+  /* ============ APP SHELL ============ */
+  #app{ display:flex; min-height:100vh; }
+
+  .sidebar{
+    width: 236px; flex: none;
+    background: var(--sidebar-bg);
+    color: #eef1f6;
+    display:flex; flex-direction:column;
+    position: sticky; top:0; height:100vh;
+    z-index: 20;
+  }
+  .sidebar-brand{
+    display:flex; align-items:center; gap:10px;
+    padding: 20px 18px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.12);
+  }
+  .brand-mark{
+    width:30px; height:30px; border-radius: 7px;
+    background: var(--action);
+    display:flex; align-items:center; justify-content:center;
+    font-family: var(--font-mono); font-weight:700; font-size:13px; color:#241300;
+    flex: none;
+  }
+  .brand-text{ display:flex; flex-direction:column; line-height:1.15; }
+  .brand-text strong{ font-family: var(--font-display); font-size:15.5px; font-weight:700; letter-spacing:-0.01em; }
+  .brand-text span{ font-size:10.5px; color: rgba(238,241,246,0.6); letter-spacing:.06em; text-transform:uppercase; }
+
+  .nav-group-label{
+    font-size:10.5px; text-transform:uppercase; letter-spacing:.08em;
+    color: rgba(238,241,246,0.45); padding: 16px 18px 6px;
+  }
+  .nav{ list-style:none; margin:0; padding: 4px 10px; display:flex; flex-direction:column; gap:2px; }
+  .nav-item{
+    display:flex; align-items:center; gap:10px;
+    padding: 8px 10px; border-radius: 8px;
+    color: rgba(238,241,246,0.78);
+    font-size: 13.5px; font-weight:600;
+    border:none; background:transparent; width:100%; text-align:left;
+  }
+  .nav-item:hover{ background: rgba(255,255,255,0.08); color:#fff; }
+  .nav-item.active{ background: rgba(255,255,255,0.14); color:#fff; }
+  .nav-item .dot{ width:7px; height:7px; border-radius:50%; flex:none; }
+  .nav-item .icon{ width:16px; height:16px; flex:none; display:flex; align-items:center; justify-content:center; }
+  .nav-item .count{ margin-left:auto; font-size:11px; font-family: var(--font-mono); color: rgba(238,241,246,0.55); }
+
+  .sidebar-foot{
+    margin-top:auto; padding: 14px 18px; border-top:1px solid rgba(255,255,255,0.12);
+    font-size:11.5px; color: rgba(238,241,246,0.5);
+  }
+
+  .main{ flex:1; min-width:0; display:flex; flex-direction:column; }
+
+  .topbar{
+    position: sticky; top:0; z-index:15;
+    display:flex; align-items:center; gap:14px;
+    padding: 12px 24px; background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    min-height: 60px;
+  }
+  .topbar h1{ font-size: 18px; font-weight:700; }
+  .topbar .subtitle{ font-size:12px; color:var(--text-secondary); margin-top:1px; }
+  .search-global{
+    display:flex; align-items:center; gap:8px;
+    background: var(--surface-2); border:1px solid var(--border);
+    border-radius: 8px; padding: 7px 10px; width: 300px; max-width: 40vw;
+    color: var(--text-secondary);
+  }
+  .search-global input{ border:none; background:transparent; outline:none; width:100%; color:var(--text-primary); }
+  .topbar-actions{ margin-left:auto; display:flex; align-items:center; gap:10px; }
+  .menu-toggle{ display:none; }
+
+  /* ============ SYNC STATUS BADGE (Data Service / Google Sheets) ============ */
+  .sync-badge{
+    display:flex; align-items:center; gap:9px; border:1px solid var(--border); background:var(--surface-2);
+    border-radius:99px; padding:5px 6px 5px 12px; cursor:pointer; max-width: 280px;
+  }
+  .sync-badge .dot{ width:8px; height:8px; border-radius:50%; flex:none; background:var(--text-muted); }
+  .sync-badge.sync-ok .dot{ background: var(--sev-low); }
+  .sync-badge.sync-busy .dot{ background: var(--sev-medium); animation: sync-pulse 1s ease-in-out infinite; }
+  .sync-badge.sync-off .dot{ background: var(--text-muted); }
+  .sync-badge.sync-err .dot{ background: var(--sev-critical); }
+  @keyframes sync-pulse{ 0%,100%{ opacity:1; } 50%{ opacity:.35; } }
+  .sync-text{ display:flex; flex-direction:column; line-height:1.25; overflow:hidden; }
+  .sync-text strong{ font-size:12px; }
+  .sync-text .sync-sub{ font-size:10.5px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sync-badge .sync-now-btn{
+    width:26px; height:26px; padding:0; display:inline-flex; align-items:center; justify-content:center;
+    border-radius:50%; border:none; background:transparent; color:var(--text-secondary); font-size:14px; cursor:pointer;
+  }
+  .sync-badge .sync-now-btn:hover{ background: var(--surface); }
+  @media (max-width: 780px){ .sync-badge .sync-sub{ display:none; } }
+
+  /* ============ SETTINGS: DATA SOURCE PANEL ============ */
+  .data-source-modes{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
+  .data-source-mode-card{
+    flex:1 1 170px; border:1px solid var(--border); border-radius: var(--radius-l); padding:12px 14px;
+    cursor:pointer; background:var(--surface);
+  }
+  .data-source-mode-card.active{ border-color:var(--accent); background: var(--accent-soft); }
+  .data-source-mode-card .name{ font-weight:700; font-size:13px; }
+  .data-source-mode-card .desc{ font-size:11.5px; color:var(--text-muted); margin-top:3px; }
+  .data-source-status-row{ display:flex; justify-content:space-between; gap:12px; padding:8px 0; border-bottom:1px solid var(--border); font-size:13px; }
+  .data-source-status-row:last-of-type{ border-bottom:none; }
+  .data-source-status-row .k{ color:var(--text-muted); }
+  .data-source-status-row .v{ font-weight:600; text-align:right; }
+  .ds-sheet-url-input{
+    flex:1 1 260px; min-width:200px; background:var(--surface-2); border:1px solid var(--border);
+    border-radius:8px; padding:8px 10px; color:var(--text-primary); font-size:13px;
+  }
+
+  .content{ padding: 22px 24px 60px; max-width: 1400px; width:100%; margin: 0 auto; }
+
+  /* ============ BUTTONS ============ */
+  .btn{
+    display:inline-flex; align-items:center; gap:7px;
+    padding: 8px 14px; border-radius: 8px; border:1px solid transparent;
+    font-weight:600; font-size:13px; white-space:nowrap;
+    background: var(--surface-2); color: var(--text-primary); border-color: var(--border);
+    transition: background .12s ease, border-color .12s ease, transform .05s ease;
+  }
+  .btn:hover{ border-color: var(--border-strong); }
+  .btn:active{ transform: translateY(1px); }
+  .btn-primary{ background: var(--action); color: #241300; border-color: transparent; }
+  .btn-primary:hover{ background: var(--action-strong); }
+  :root[data-theme="dark"] .btn-primary, .btn-primary{ color:#241300; }
+  .btn-ghost{ background: transparent; border-color: transparent; }
+  .btn-ghost:hover{ background: var(--surface-2); }
+  .btn-danger{ background: transparent; color: var(--sev-critical); border-color: var(--border); }
+  .btn-danger:hover{ background: rgba(208,59,59,0.10); border-color: var(--sev-critical); }
+  .btn-sm{ padding: 5px 10px; font-size:12px; border-radius:6px; }
+  .btn:disabled{ opacity:.5; cursor:not-allowed; }
+  .icon-btn{
+    width:30px; height:30px; display:inline-flex; align-items:center; justify-content:center;
+    border-radius:7px; border:1px solid var(--border); background:var(--surface-2);
+  }
+  .icon-btn:hover{ border-color: var(--border-strong); }
+
+  /* ============ CARDS / SECTIONS ============ */
+  .panel{
+    background: var(--surface); border:1px solid var(--border); border-radius: var(--radius-l);
+  }
+  .section-head{ display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:14px; }
+  .section-head h2{ font-size:15px; }
+  .section-head .hint{ font-size:12px; color: var(--text-muted); }
+
+  /* KPI row — flexbox rather than grid: with a variable, sometimes-odd tile
+     count (7 on the main dashboard, 4 on Actions panels), a grid with
+     auto-fit columns leaves a colored dead track when the last row doesn't
+     divide evenly. Flex-wrap just lets the trailing tile(s) grow to fill
+     the row instead. */
+  .kpi-row{
+    display:flex; flex-wrap:wrap;
+    gap:1px; background: var(--border);
+    border:1px solid var(--border); border-radius: var(--radius-l); overflow:hidden;
+    margin-bottom: 22px;
+  }
+  .kpi{
+    background: var(--surface); padding: 16px 18px; display:flex; flex-direction:column; gap:6px;
+    min-height: 92px; flex: 1 1 148px; min-width: 148px;
+  }
+  .kpi .label{ font-size:11.5px; color: var(--text-muted); text-transform:uppercase; letter-spacing:.05em; font-weight:600; }
+  .kpi .value{ font-family: var(--font-display); font-size: 26px; font-weight:700; font-variant-numeric: tabular-nums; }
+  .kpi .value.crit{ color: var(--sev-critical); }
+  .kpi .value.warn{ color: var(--sev-high); }
+  .kpi .sub{ font-size:11.5px; color: var(--text-secondary); }
+
+  .grid-2{ display:grid; grid-template-columns: 1.3fr 1fr; gap:16px; }
+  .grid-2 > *{ min-width:0; } /* prevent a wide child (e.g. a data table) from blowing out the grid track */
+  .grid-3{ display:grid; grid-template-columns: repeat(3,1fr); gap:16px; }
+  .grid-3 > *{ min-width:0; }
+  .chart-card{ padding: 16px 18px 18px; }
+  .chart-card h3{ font-size:13px; margin-bottom:2px; }
+  .chart-card .chart-hint{ font-size:11.5px; color:var(--text-muted); margin-bottom:12px; display:block; }
+
+  .legend{ display:flex; flex-wrap:wrap; gap:10px 16px; margin-top:10px; }
+  .legend-item{ display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-secondary); }
+  .legend-swatch{ width:9px; height:9px; border-radius:2px; flex:none; }
+  .risk-band-legend{ margin-top:0; }
+
+  /* Risk matrix (probability x impact heatmap) */
+  .risk-matrix-wrap{ overflow-x:auto; }
+  table.risk-matrix{ border-collapse:separate; border-spacing:4px; margin:0 auto; }
+  table.risk-matrix th{ font-weight:600; color:var(--text-secondary); font-size:11px; text-align:center; padding:4px 6px; }
+  table.risk-matrix .rm-axis-label{ font-size:9px; color:var(--text-muted); font-weight:400; }
+  table.risk-matrix .rm-corner{ font-size:10px; color:var(--text-muted); text-align:right; vertical-align:bottom; line-height:1.5; }
+  table.risk-matrix .rm-corner span{ display:block; }
+  table.risk-matrix .rm-corner-sub{ text-align:left; }
+  table.risk-matrix .rm-row-head{ text-align:right; padding-right:10px; }
+  td.rm-cell{
+    width:64px; height:52px; min-width:64px; border-radius:8px; border:1px solid var(--border);
+    text-align:center; vertical-align:middle; transition: transform .1s ease, box-shadow .1s ease;
+  }
+  td.rm-cell.has-items{ cursor:pointer; border-color: var(--border-strong); }
+  td.rm-cell.has-items:hover{ transform: translateY(-2px); box-shadow: var(--shadow-soft); }
+  td.rm-cell .rm-score{ font-family: var(--font-mono); font-weight:700; font-size:14px; color:var(--text-primary); }
+  td.rm-cell .rm-count{ font-size:10px; color:var(--text-secondary); font-weight:600; margin-top:1px; }
+  @media (max-width: 640px){
+    td.rm-cell{ width:44px; min-width:44px; height:40px; }
+    td.rm-cell .rm-score{ font-size:12px; }
+    td.rm-cell .rm-count{ font-size:8.5px; }
+    table.risk-matrix .rm-axis-label{ display:none; }
+  }
+
+  .bar-row{ display:flex; align-items:center; gap:10px; padding:5px 0; }
+  .bar-row .bar-label{ width: 108px; flex:none; font-size:12px; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .bar-track{ flex:1; height:10px; background: var(--surface-2); border-radius:4px; overflow:hidden; }
+  .bar-fill{ height:100%; border-radius:4px; }
+  .bar-row .bar-val{ width:26px; text-align:right; font-size:12px; color:var(--text-secondary); font-variant-numeric:tabular-nums; }
+
+  .due-list{ display:flex; flex-direction:column; }
+  .due-row{ display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px dashed var(--border); }
+  .due-row:last-child{ border-bottom:none; }
+  .due-row .id{ font-family:var(--font-mono); font-size:11px; color:var(--text-muted); width:68px; flex:none; }
+  .due-row .title{ flex:1; font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .due-row .when{ font-size:11.5px; font-variant-numeric:tabular-nums; flex:none; }
+  .due-row .when.overdue{ color: var(--sev-critical); font-weight:700; }
+  .due-row .when.soon{ color: var(--sev-high); font-weight:600; }
+
+  /* Badges / pills */
+  .pill{
+    display:inline-flex; align-items:center; gap:5px; padding: 2px 9px; border-radius: 99px;
+    font-size:11.5px; font-weight:700; letter-spacing:.01em; white-space:nowrap; line-height:1.7;
+  }
+  .pill-dot{ width:7px; height:7px; border-radius:50%; flex:none; }
+  .pill-type-risk{ background: color-mix(in srgb, var(--type-risk) 16%, transparent); color: var(--type-risk); }
+  .pill-type-assumption{ background: color-mix(in srgb, var(--type-assumption) 16%, transparent); color: var(--type-assumption); }
+  .pill-type-issue{ background: color-mix(in srgb, var(--type-issue) 18%, transparent); color: var(--type-issue); }
+  .pill-type-dependency{ background: color-mix(in srgb, var(--type-dependency) 18%, transparent); color: var(--type-dependency); }
+
+  .pill-sev-critical{ background: color-mix(in srgb, var(--sev-critical) 16%, transparent); color: var(--sev-critical); }
+  .pill-sev-high{ background: color-mix(in srgb, var(--sev-high) 18%, transparent); color: var(--sev-high); }
+  .pill-sev-medium{ background: color-mix(in srgb, var(--sev-medium) 20%, transparent); color: var(--sev-medium); }
+  .pill-sev-low{ background: color-mix(in srgb, var(--sev-low) 16%, transparent); color: var(--sev-low); }
+
+  .status-chip{
+    display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--text-secondary);
+  }
+  .status-chip .dot{ width:7px; height:7px; border-radius:50%; }
+  .st-open .dot, .st-inprogress .dot{ background: var(--sev-medium); }
+  .st-monitoring .dot{ background: var(--type-risk); }
+  .st-resolved .dot, .st-closed .dot, .st-accepted .dot{ background: var(--sev-low); }
+  .st-rejected .dot{ background: var(--text-muted); }
+
+  /* ============ REGISTER TOOLBAR ============ */
+  .toolbar{
+    display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:14px;
+  }
+  .toolbar .search-box{
+    display:flex; align-items:center; gap:8px; background:var(--surface); border:1px solid var(--border);
+    border-radius:8px; padding:8px 12px; min-width:230px; flex:1 1 230px; max-width: 360px;
+  }
+  .toolbar .search-box input{ border:none; outline:none; background:transparent; width:100%; color:var(--text-primary); }
+  .filter-select, select.filter-select{
+    background: var(--surface); border:1px solid var(--border); border-radius:8px;
+    padding:7px 10px; color:var(--text-primary); min-width: 108px;
+  }
+  .toggle-chip{
+    border:1px solid var(--border); background:var(--surface); padding:6px 12px; border-radius:99px; font-size:12.5px; font-weight:600; color:var(--text-secondary); cursor:pointer;
+  }
+  .toggle-chip.active{ background: var(--accent-soft); border-color: var(--accent); color: var(--accent-strong); }
+  :root[data-theme="dark"] .toggle-chip.active, .toggle-chip.active{ color: var(--accent); }
+
+  .result-count{ font-size:12.5px; color: var(--text-muted); margin-left:auto; white-space:nowrap; }
+  .result-count strong{ color: var(--text-primary); font-weight:700; }
+
+  /* ---- active filter chips (removable) ---- */
+  .active-filters{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin: -2px 0 14px; }
+  .active-filters-label{ font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color: var(--text-muted); }
+  .filter-chip{
+    display:inline-flex; align-items:center; gap:7px; background: var(--accent-soft); border:1px solid var(--accent);
+    color: var(--accent-strong); border-radius:99px; padding:5px 6px 5px 12px; font-size:12px; font-weight:600; line-height:1.3;
+  }
+  :root[data-theme="dark"] .filter-chip, .filter-chip{ color: var(--accent); }
+  .filter-chip button{
+    border:none; background: color-mix(in srgb, currentColor 14%, transparent); color:inherit; width:17px; height:17px;
+    border-radius:50%; cursor:pointer; font-size:10px; line-height:1; display:inline-flex; align-items:center; justify-content:center; padding:0;
+  }
+  .filter-chip button:hover{ background: color-mix(in srgb, currentColor 26%, transparent); }
+
+  /* ============ TABLE ============ */
+  .table-wrap{ overflow-x:auto; border:1px solid var(--border); border-radius: var(--radius-l); background:var(--surface); }
+  /* Register/Actions tables keep a wide min-width for readability (see
+     table.register below), which means they scroll horizontally inside
+     .table-wrap on narrow screens — this hint makes that discoverable
+     instead of leaving the cut-off columns looking like missing data. */
+  .mobile-scroll-hint{ display:none; font-size:11.5px; color:var(--text-muted); text-align:center; margin-top:8px; }
+  table.register{ width:100%; border-collapse:collapse; min-width: 980px; }
+  /* Narrower variant for the Reports page's risk table, which shares a
+     half-width column with the risk matrix — the 980px min-width above (sized
+     for the full Register/Actions tables) would otherwise force a nested
+     horizontal scrollbar here even with only 4 columns. */
+  table.register.report-risk-table{ min-width: 0; }
+  table.report-risk-table td.title-cell{ max-width: 220px; }
+  table.register thead th{
+    position:sticky; top:0; background: var(--surface-2); z-index:2;
+    text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color: var(--text-muted);
+    padding: 10px 14px; border-bottom: 1px solid var(--border); white-space:nowrap; font-weight:700;
+  }
+  table.register thead th button{
+    background:none; border:none; padding:0; display:flex; align-items:center; gap:5px; color: inherit; font: inherit;
+    text-transform:inherit; letter-spacing:inherit; font-weight:inherit;
+  }
+  table.register thead th button:hover{ color: var(--text-primary); }
+  table.register tbody td{ padding: 11px 14px; border-bottom:1px solid var(--border); vertical-align:middle; font-size:13px; }
+  table.register tbody tr:last-child td{ border-bottom:none; }
+  table.register tbody tr{ cursor:pointer; }
+  table.register tbody tr:hover{ background: var(--surface-2); }
+  td.id-cell{ font-family: var(--font-mono); font-size:12px; color: var(--text-secondary); }
+  td.title-cell{ max-width: 300px; }
+  td.title-cell .t{ font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block; }
+  td.title-cell .d{ font-size:11.5px; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block; margin-top:1px; }
+  td.due-cell.overdue{ color: var(--sev-critical); font-weight:700; }
+  td.due-cell.soon{ color: var(--sev-high); font-weight:600; }
+  .row-actions{ display:flex; gap:4px; justify-content:flex-end; opacity:0; }
+  table.register tbody tr:hover .row-actions, table.register tbody tr:focus-within .row-actions{ opacity:1; }
+  .score-badge{
+    display:inline-flex; align-items:center; justify-content:center; width:28px; height:22px; border-radius:6px;
+    font-family: var(--font-mono); font-weight:700; font-size:12px;
+  }
+
+  .empty-state{ padding: 56px 20px; text-align:center; color: var(--text-secondary); }
+  .empty-state .icon{ font-size:34px; margin-bottom:10px; opacity:.6; }
+  .empty-state h3{ font-size:15px; margin-bottom:6px; color: var(--text-primary); }
+  .empty-state p{ font-size:13px; max-width:360px; margin: 0 auto; }
+
+  /* ============ MODAL / DRAWER / OVERLAY ============ */
+  .overlay{
+    position:fixed; inset:0; background: rgba(10,13,18,0.5); z-index: 50;
+    display:flex; align-items:flex-start; justify-content:center; padding: 4vh 16px; overflow-y:auto;
+    animation: fade-in .12s ease;
+  }
+  @keyframes fade-in{ from{ opacity:0; } to{ opacity:1; } }
+  .modal{
+    background: var(--surface); border-radius: var(--radius-l); box-shadow: var(--shadow-modal);
+    width: 100%; max-width: 720px; border:1px solid var(--border);
+    display:flex; flex-direction:column; max-height: 92vh;
+  }
+  .modal-head{ display:flex; align-items:center; justify-content:space-between; padding: 18px 22px; border-bottom:1px solid var(--border); }
+  .modal-head h2{ font-size:16px; }
+  .modal-head .type-tag{ font-size:11.5px; color: var(--text-muted); margin-top:2px; }
+  .modal-body{ padding: 20px 22px; overflow-y:auto; }
+  .modal-foot{ padding: 14px 22px; border-top:1px solid var(--border); display:flex; align-items:center; justify-content:flex-end; gap:10px; }
+
+  .form-grid{ display:grid; grid-template-columns: repeat(2,1fr); gap:14px 16px; }
+  .form-field{ display:flex; flex-direction:column; gap:5px; }
+  .form-field.span-2{ grid-column: span 2; }
+  .form-field label{ font-size:12px; font-weight:700; color: var(--text-secondary); }
+  .form-field .req{ color: var(--sev-critical); }
+  .form-field input, .form-field select, .form-field textarea{
+    border:1px solid var(--border); background: var(--surface); border-radius:7px; padding: 8px 10px; color:var(--text-primary); width:100%;
+  }
+  .form-field input:focus, .form-field select:focus, .form-field textarea:focus{ border-color: var(--accent); }
+  .form-field input:disabled{ background: var(--surface-2); color: var(--text-muted); font-family: var(--font-mono); cursor:not-allowed; }
+  .form-field textarea{ resize: vertical; min-height: 64px; font-family: inherit; }
+  .form-field .field-hint{ font-size:11px; color:var(--text-muted); }
+  .form-field .field-error{ font-size:11.5px; color: var(--sev-critical); font-weight:600; }
+  /* also usable outside a .form-field (Settings page) */
+  .field-hint{ font-size:11px; color:var(--text-muted); }
+  .field-error{ font-size:11.5px; color: var(--sev-critical); font-weight:600; }
+  .form-field.error input, .form-field.error select, .form-field.error textarea{ border-color: var(--sev-critical); }
+  .form-section-title{ grid-column: 1/-1; font-size:11.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); font-weight:700; margin-top:6px; border-top:1px solid var(--border); padding-top:14px; }
+  .form-section-title:first-child{ border-top:none; margin-top:0; padding-top:0; }
+  .risk-score-preview{
+    grid-column: span 2; display:flex; align-items:center; gap:20px; flex-wrap:wrap; padding:12px 14px; border-radius:8px; background: var(--surface-2); border:1px solid var(--border);
+  }
+  .risk-score-preview .num{ font-family: var(--font-mono); font-weight:700; font-size:22px; text-align:center; }
+  .risk-score-preview .label{ font-size:12px; color:var(--text-secondary); }
+  .rsp-stat{ display:flex; flex-direction:column; align-items:flex-start; gap:2px; flex:none; }
+  .rsp-k{ font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); font-weight:700; }
+  .rsp-formula{ display:flex; flex-direction:column; gap:2px; flex:1 1 220px; border-left:1px solid var(--border); padding-left:16px; }
+
+  /* Detail drawer */
+  .drawer-overlay{ position:fixed; inset:0; background: rgba(10,13,18,0.45); z-index:50; }
+  .drawer{
+    position:fixed; top:0; right:0; height:100vh; width: 460px; max-width: 92vw;
+    background: var(--surface); border-left: 1px solid var(--border); box-shadow: var(--shadow-modal);
+    z-index:51; display:flex; flex-direction:column; animation: slide-in .16s ease;
+  }
+  @keyframes slide-in{ from{ transform: translateX(24px); opacity:.4; } to{ transform:none; opacity:1; } }
+  .drawer-head{ padding: 18px 22px; border-bottom:1px solid var(--border); display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+  .drawer-head .idline{ font-family:var(--font-mono); font-size:11.5px; color:var(--text-muted); margin-bottom:6px; }
+  .drawer-head h2{ font-size:17px; }
+  .drawer-body{ padding: 18px 22px; overflow-y:auto; flex:1; }
+  .drawer-foot{ padding: 14px 22px; border-top:1px solid var(--border); display:flex; gap:10px; justify-content:space-between; }
+  .dl-grid{ display:grid; grid-template-columns: 1fr 1fr; gap:12px 16px; margin-bottom: 18px; }
+  .dl-item .k{ font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); font-weight:700; margin-bottom:3px; }
+  .dl-item .v{ font-size:13px; color:var(--text-primary); }
+  .drawer-section{ margin-bottom:20px; }
+  .drawer-section h4{ font-size:11.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); margin-bottom:8px; }
+  .drawer-section p{ font-size:13px; color:var(--text-primary); white-space:pre-wrap; }
+  .timeline{ display:flex; flex-direction:column; gap:10px; }
+  .timeline-row{ display:flex; gap:10px; font-size:12.5px; }
+  .timeline-row .tdot{ width:8px; height:8px; border-radius:50%; background:var(--accent); margin-top:4px; flex:none; }
+  .timeline-row .tdate{ color:var(--text-muted); font-family:var(--font-mono); font-size:11px; white-space:nowrap; }
+
+  /* Confirm dialog */
+  .confirm-box{ max-width: 400px; }
+  .confirm-box .modal-body{ font-size:13.5px; color:var(--text-secondary); }
+  .confirm-box strong{ color: var(--text-primary); }
+
+  /* Toast */
+  .toast-wrap{ position:fixed; bottom: 20px; left:50%; transform:translateX(-50%); z-index:80; display:flex; flex-direction:column; gap:8px; align-items:center; }
+  .toast{
+    background: var(--accent-strong); color:#fff; padding: 10px 16px; border-radius:8px; font-size:13px; font-weight:600;
+    box-shadow: var(--shadow-soft); display:flex; align-items:center; gap:8px; animation: toast-in .15s ease;
+  }
+  @keyframes toast-in{ from{ opacity:0; transform: translateY(6px); } to{ opacity:1; transform:none; } }
+
+  .placeholder-card{ padding: 60px 24px; text-align:center; color:var(--text-secondary); }
+  .placeholder-card .tag{ display:inline-block; font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color: var(--action); background:var(--action-soft); padding:4px 10px; border-radius:99px; margin-bottom:14px; }
+  .placeholder-card h2{ font-size:19px; margin-bottom:8px; color:var(--text-primary); }
+  .placeholder-card p{ max-width: 440px; margin: 0 auto; font-size:13.5px; }
+
+  /* ============ SETTINGS ============ */
+  .theme-switch{ display:flex; flex-wrap:wrap; gap:8px; }
+  .export-textarea{
+    width:100%; min-height:180px; resize:vertical; font-family: var(--font-mono); font-size:11.5px; line-height:1.5;
+    background: var(--surface-2); border:1px solid var(--border); border-radius: var(--radius-m); padding:10px 12px; color: var(--text-primary);
+  }
+  .export-textarea:focus{ outline:none; border-color: var(--accent); }
+
+  /* Responsive */
+  @media (max-width: 980px){
+    .grid-2{ grid-template-columns:1fr; }
+  }
+  @media (max-width: 860px){
+    .sidebar{ position:fixed; left:0; top:0; transform: translateX(-100%); transition: transform .18s ease; box-shadow: var(--shadow-modal); }
+    .sidebar.open{ transform:none; }
+    .menu-toggle{ display:inline-flex; }
+    .content{ padding: 16px 14px 50px; }
+    .topbar{ padding: 10px 14px; }
+    .search-global{ width: 160px; }
+    .form-grid{ grid-template-columns: 1fr; }
+    .form-field.span-2{ grid-column: span 1; }
+    .risk-score-preview{ grid-column: span 1; }
+    .mobile-scroll-hint{ display:block; }
+  }
+  @media (max-width: 560px){
+    .kpi{ flex-basis: calc(50% - 1px); min-width: 0; }
+    .topbar h1{ font-size:15.5px; }
+    .search-global{ display:none; }
+    .drawer{ width:100%; }
+    .topbar-actions{ gap:6px; }
+    .sync-badge{ padding:5px; gap:0; }
+    .sync-badge .sync-text{ display:none; }
+    .topbar-actions .btn-primary{ padding:8px 10px; }
+    .topbar-actions .btn-primary .btn-label{ display:none; }
+  }
+  .sidebar-scrim{ display:none; }
+  @media (max-width:860px){
+    .sidebar-scrim.open{ display:block; position:fixed; inset:0; background:rgba(10,13,18,.4); z-index:19; }
+  }
+</style>
+
+<div id="app"></div>
+<div id="overlay-root"></div>
+<div class="toast-wrap" id="toast-root"></div>
+
+<script>
+/* =====================================================================
+   RAID LOG TRACKER — data model, state, rendering, interactions
+   ===================================================================== */
+
+/* ---------- persistence: storage keys + earliest-possible theme apply ----
+   This runs before anything else in the script — before demo data is even
+   built — so a returning viewer's saved theme choice paints on the very
+   first frame instead of flashing the default theme for a moment. The data
+   (RAID items / actions) loading itself happens later, once the data-model
+   constants and the risk-scoring engine it depends on are defined. ---------- */
+const STORAGE_KEY = "raidLogTracker.data.v1";
+const PREFS_KEY = "raidLogTracker.prefs.v1";
+
+function probeStorage(){
+  try{
+    const k = "__raidLogTracker_probe__";
+    window.localStorage.setItem(k, "1");
+    window.localStorage.removeItem(k);
+    return true;
+  }catch(e){ return false; }
+}
+const STORAGE_AVAILABLE = probeStorage();
+
+function loadPrefs(){
+  const fallback = { theme:"system", dataMode:"local" };
+  if(!STORAGE_AVAILABLE) return fallback;
+  try{
+    const raw = window.localStorage.getItem(PREFS_KEY);
+    if(!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    const theme = (parsed && ["system","light","dark"].includes(parsed.theme)) ? parsed.theme : "system";
+    // "google" is deliberately never resumed on reload — a fresh page load
+    // always re-attempts from Local mode (see the Data Service section below
+    // for why: a live Google Sheets session can't safely resume without a
+    // real backend connection).
+    const dataMode = (parsed && parsed.dataMode==="demo") ? "demo" : "local";
+    return { theme, dataMode };
+  }catch(e){ return fallback; }
+}
+function applyTheme(theme){
+  if(theme==="light") document.documentElement.setAttribute("data-theme","light");
+  else if(theme==="dark") document.documentElement.setAttribute("data-theme","dark");
+  else document.documentElement.removeAttribute("data-theme");
+}
+const initialPrefs = loadPrefs();
+applyTheme(initialPrefs.theme);
+
+/* ---------- constants / data model ---------- */
+const TYPES = ["Risk","Assumption","Issue","Dependency"];
+const TYPE_META = {
+  Risk:        { plural:"Risks",        prefix:"RISK", color:"var(--type-risk)",        cls:"pill-type-risk" },
+  Assumption:  { plural:"Assumptions",  prefix:"ASM",  color:"var(--type-assumption)",  cls:"pill-type-assumption" },
+  Issue:       { plural:"Issues",       prefix:"ISS",  color:"var(--type-issue)",        cls:"pill-type-issue" },
+  Dependency:  { plural:"Dependencies", prefix:"DEP",  color:"var(--type-dependency)",  cls:"pill-type-dependency" },
+};
+const STATUS_BY_TYPE = {
+  Risk:       ["Open","In Progress","Monitoring","Accepted","Closed"],
+  Assumption: ["Open","In Progress","Accepted","Rejected","Closed"],
+  Issue:      ["Open","In Progress","Resolved","Closed"],
+  Dependency: ["Open","In Progress","Monitoring","Resolved","Closed"],
+};
+const CLOSED_STATUSES = ["Closed","Resolved","Rejected"]; // "Accepted" is treated as still active/monitored
+const PRIORITIES = ["Low","Medium","High","Critical"];
+const SCALE_LABELS = {1:"Very Low",2:"Low",3:"Medium",4:"High",5:"Very High"};
+const ACTION_STATUSES = ["Not Started","In Progress","Complete"];
+const STATUS_CLASS = {
+  "Open":"st-open","In Progress":"st-inprogress","Monitoring":"st-monitoring",
+  "Resolved":"st-resolved","Closed":"st-closed","Accepted":"st-accepted","Rejected":"st-rejected"
+};
+
+/* ---------- risk scoring engine (single source of truth) ----------
+   Risk Score = Probability x Impact, both on a 1-5 scale.
+   Bands: 1-4 Low, 5-9 Medium, 10-16 High, 17-25 Critical.
+   Every place in the app that shows a score/level (table, detail, form,
+   dashboard, reports) calls these two functions — never recomputes inline. */
+const RISK_BANDS = [
+  { level:"Low",      min:1,  max:4  },
+  { level:"Medium",   min:5,  max:9  },
+  { level:"High",     min:10, max:16 },
+  { level:"Critical", min:17, max:25 },
+];
+function riskScore(probability, impact){ return Number(probability) * Number(impact); }
+function riskLevel(score){
+  if(score>=17) return "Critical";
+  if(score>=10) return "High";
+  if(score>=5) return "Medium";
+  return "Low";
+}
+const SEV_CLASS = { Critical:"pill-sev-critical", High:"pill-sev-high", Medium:"pill-sev-medium", Low:"pill-sev-low" };
+const SEV_COLOR = { Critical:"var(--sev-critical)", High:"var(--sev-high)", Medium:"var(--sev-medium)", Low:"var(--sev-low)" };
+
+/* Mini 1-25 scale strip with a marker at the current score — the shared
+   "clear visual indicator" used in the edit form, detail view and reports. */
+function scoreScaleSVG(score, width){
+  width = width || 220;
+  const height = 14, max = 25;
+  const bands = RISK_BANDS;
+  const segs = bands.map(b=>{
+    const x1 = ((b.min-1)/max)*width, x2 = (b.max/max)*width;
+    return `<rect x="${x1.toFixed(1)}" y="0" width="${(x2-x1).toFixed(1)}" height="${height}" fill="${SEV_COLOR[b.level]}" opacity="0.32"></rect>`;
+  }).join("");
+  const markerX = Math.min(width-1, Math.max(1, (score/max)*width));
+  return `<svg width="${width}" height="${height+8}" viewBox="0 0 ${width} ${height+8}" role="img" aria-label="Risk score ${score} of ${max}">
+    <g>${segs}</g>
+    <rect x="0" y="0" width="${width}" height="${height}" fill="none" stroke="var(--border)"></rect>
+    <line x1="${markerX.toFixed(1)}" y1="-2" x2="${markerX.toFixed(1)}" y2="${height+2}" stroke="var(--text-primary)" stroke-width="2"></line>
+    <circle cx="${markerX.toFixed(1)}" cy="${height/2}" r="3.2" fill="var(--text-primary)"></circle>
+  </svg>`;
+}
+/* Reference legend for the four bands - shown wherever a reader needs the key. */
+function riskBandLegend(){
+  return `<div class="legend risk-band-legend">${RISK_BANDS.map(b=>`
+    <span class="legend-item"><span class="legend-swatch" style="background:${SEV_COLOR[b.level]}"></span>${b.level} <span class="mono" style="color:var(--text-muted)">(${b.min}–${b.max})</span></span>`).join("")}</div>`;
+}
+
+function isOpenStatus(status){ return !CLOSED_STATUSES.includes(status); }
+
+/* ---------- date helpers ---------- */
+function todayISO(){ const d=new Date(); d.setHours(0,0,0,0); return d.toISOString().slice(0,10); }
+function offsetISO(days){ const d=new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()+days); return d.toISOString().slice(0,10); }
+function parseISO(s){ if(!s) return null; const d=new Date(s+"T00:00:00"); return isNaN(d) ? null : d; }
+function daysBetween(fromISO, toISO){
+  const a = parseISO(fromISO), b = parseISO(toISO);
+  if(!a || !b) return null;
+  return Math.round((b-a)/86400000);
+}
+function fmtDate(iso){
+  if(!iso) return "—";
+  const d = parseISO(iso); if(!d) return "—";
+  return d.toLocaleDateString(undefined,{ year:"numeric", month:"short", day:"numeric" });
+}
+function fmtDateShort(iso){
+  if(!iso) return "—";
+  const d = parseISO(iso); if(!d) return "—";
+  return d.toLocaleDateString(undefined,{ month:"short", day:"numeric" });
+}
+function dueTiming(iso, status){
+  if(!iso) return "none";
+  if(status && CLOSED_STATUSES.includes(status)) return "closed";
+  const n = daysBetween(todayISO(), iso);
+  if(n===null) return "none";
+  if(n<0) return "overdue";
+  if(n<=7) return "soon";
+  return "normal";
+}
+function relativeDueLabel(iso, status){
+  const timing = dueTiming(iso, status);
+  const n = daysBetween(todayISO(), iso);
+  if(timing==="closed") return fmtDateShort(iso);
+  if(n===null) return "—";
+  if(n<0) return `${Math.abs(n)}d overdue`;
+  if(n===0) return "Due today";
+  if(n<=7) return `Due in ${n}d`;
+  return fmtDateShort(iso);
+}
+
+/* ---------- shared "Due date" range filter (RAID Register + Actions) ----------
+   A deliberately separate control from the "Overdue" toggle: Overdue always
+   means "in the past"; these buckets are forward-looking upcoming-due windows
+   (or "no due date set" at all), so the two compose without ever fighting
+   over the same items. */
+const DUE_RANGE_OPTIONS = [
+  { value:"", label:"Any due date" },
+  { value:"today", label:"Due today" },
+  { value:"week", label:"Due within 7 days" },
+  { value:"month", label:"Due within 30 days" },
+  { value:"none", label:"No due date set" },
+];
+const DUE_RANGE_LABEL = Object.fromEntries(DUE_RANGE_OPTIONS.map(o=>[o.value, o.label]));
+function inDueRange(iso, isOpen, range){
+  if(!range) return true;
+  if(range==="none") return !iso;
+  if(!iso || !isOpen) return false;
+  const n = daysBetween(todayISO(), iso);
+  if(n===null) return false;
+  if(range==="today") return n===0;
+  if(range==="week") return n>=0 && n<=7;
+  if(range==="month") return n>=0 && n<=30;
+  return true;
+}
+
+/* ---------- id generation ---------- */
+const idCounters = { Risk:0, Assumption:0, Issue:0, Dependency:0 };
+function nextId(type){
+  idCounters[type] += 1;
+  return `${TYPE_META[type].prefix}-${String(idCounters[type]).padStart(3,"0")}`;
+}
+function previewNextId(type){
+  return `${TYPE_META[type].prefix}-${String(idCounters[type]+1).padStart(3,"0")}`;
+}
+function registerExistingId(item){
+  const n = parseInt(item.id.split("-")[1],10);
+  if(!isNaN(n) && n > idCounters[item.type]) idCounters[item.type] = n;
+}
+
+/* Actions are a separate, first-class collection (their own IDs, own CRUD,
+   own page) rather than fields embedded in a RAID item. */
+let actionIdCounter = 0;
+function nextActionId(){ actionIdCounter += 1; return `ACT-${String(actionIdCounter).padStart(3,"0")}`; }
+function previewNextActionId(){ return `ACT-${String(actionIdCounter+1).padStart(3,"0")}`; }
+function registerExistingActionId(action){
+  const n = parseInt(String(action.id).split("-")[1], 10);
+  if(!isNaN(n) && n > actionIdCounter) actionIdCounter = n;
+}
+/* Recompute both ID counters from whatever RAID items / actions are actually
+   in play (loaded from storage, imported, or reset to demo data) so the next
+   nextId()/nextActionId() call always continues past the highest ID present
+   — regardless of where that data came from. Safer than persisting/trusting
+   the counters themselves. */
+function resyncIdCounters(items, actions){
+  idCounters.Risk = 0; idCounters.Assumption = 0; idCounters.Issue = 0; idCounters.Dependency = 0;
+  actionIdCounter = 0;
+  items.forEach(registerExistingId);
+  actions.forEach(registerExistingActionId);
+}
+const ACTION_STATUSES_FULL = ["Not Started","In Progress","Complete"];
+function isActionOverdue(a){ return !!a.dueDate && a.status!=="Complete" && daysBetween(todayISO(), a.dueDate) < 0; }
+function actionDueTiming(a){
+  if(!a.dueDate) return "none";
+  if(a.status==="Complete") return "complete";
+  const n = daysBetween(todayISO(), a.dueDate);
+  if(n===null) return "none";
+  if(n<0) return "overdue";
+  if(n<=7) return "soon";
+  return "normal";
+}
+
+/* ---------- demo data ---------- */
+const OWNERS = ["Saied","Bilal Azzam","More than one of the team","QC-Team","Squad team","Mohamed Azzam","Azzam & Saied","All People","Azzam"];
+const PROJECTS = {
+  "Team Retro — Red Flags": ["Delivery & Execution","Process & Ways of Working","Team & Culture","Tooling & Automation"],
+};
+
+function d(offset){ return offsetISO(offset); }
+
+// Data below is sourced from the team's "Red Flags" retro sheet — Title,
+// Description, Owner and Action come directly from that sheet. The sheet had
+// no RAID type, project/workstream, dates or priority, so (per instruction)
+// type was assigned randomly per item, and project/workstream/dates/priority
+// use one generic project ("Team Retro — Red Flags") with a fixed set of
+// workstreams, today's date, and Medium priority as sensible defaults.
+const RAW_ITEMS = [
+  { type:"Risk", title:"Roles and Responsibilities",
+    description:"No clear roles and responsibilities in our team",
+    project:"Team Retro — Red Flags", workstream:"Process & Ways of Working", owner:"Saied", status:"Open",
+    probability:1, impact:3, dateRaised:d(0), dueDate:d(14), reviewDate:d(14),
+    mitigation:"",
+    action:"", actionOwner:"", actionDueDate:"", actionStatus:"", actionCompletion:0,
+    relatedItem:"", notes:"" },
+  { type:"Assumption", title:"Jira Board",
+    description:"No clear viaualization for the board",
+    project:"Team Retro — Red Flags", workstream:"Team & Culture", owner:"Bilal Azzam", status:"Open", priority:"Medium",
+    dateRaised:d(0), dueDate:d(14), reviewDate:d(14),
+    mitigation:"",
+    action:"Grooming meeting : to be mandatory", actionOwner:"Bilal Azzam", actionDueDate:d(14), actionStatus:"Not Started", actionCompletion:0,
+    relatedItem:"", notes:"" },
+  { type:"Assumption", title:"Merging Behaviour",
+    description:"No clear policy for merging on staging so it cause alot of issues and removing code blocks",
+    project:"Team Retro — Red Flags", workstream:"Tooling & Automation", owner:"More than one of the team", status:"Open", priority:"Medium",
+    dateRaised:d(0), dueDate:d(14), reviewDate:d(14),
+    mitigation:"",
+    action:"", actionOwner:"", actionDueDate:"", actionStatus:"", actionCompletion:0,
+    relatedItem:"", notes:"" },
+  { type:"Assumption", title:"Mobile Squad Delivery",
+    description:"Scope not clear and still having scope for more than 8 months without clear timeline",
+    project:"Team Retro — Red Flags", workstream:"Delivery & Execution", owner:"QC-Team", status:"Open", priority:"Medium",
+    dateRaised:d(0), dueDate:d(14), reviewDate:d(14),
+    mitigation:"",
+    action:"Draw the sprint time line; Make Grooming Meeting to know the upcomming scope; Solve the allocation eailier; Start the sprint in time", actionOwner:"QC-Team", actionDueDate:d(14), actionStatus:"Not Started", actionCompletion:0,
+    relatedItem:"", notes:"" },
+  { type:"Risk", title:"Construction Module",
+    description:"Construction Module need to be defined-scope and deployed by 15 August 2026",
+    project:"Team Retro — Red Flags", workstream:"Process & Ways of Working", owner:"Squad team", status:"Open",
+    probability:5, impact:1, dateRaised:d(0), dueDate:d(14), reviewDate:d(14),
+    mitigation:"",
+    action:"", actionOwner:"", actionDueDate:"", actionStatus:"", actionCompletion:0,
+    relatedItem:"", notes:"" },
+  { type:"Dependency", title:"Portal Updates",
+    description:"- Alot of cards hold from months ago without any action from the team to deploy",
+    project:"Team Retro — Red Flags", workstream:"Team & Culture", owner:"Mohamed Azzam", status:"Resolved", priority:"Medium",
+    dateRaised:d(0), dueDate:d(14), reviewDate:d(14),
+    mitigation:"",
+    action:"Met with the team to find the proper solution and we set a proper plan aligned with the stakeholder and should be finished by end of this week", actionOwner:"Mohamed Azzam", actionDueDate:d(14), actionStatus:"Not Started", actionCompletion:0,
+    relatedItem:"", notes:"" },
+  { type:"Risk", title:"Sprint Process",
+    description:"- No due dates for activities inside our sprint all due dates we are setting not respected",
+    project:"Team Retro — Red Flags", workstream:"Tooling & Automation", owner:"Saied", status:"Open",
+    probability:1, impact:1, dateRaised:d(0), dueDate:d(14), reviewDate:d(14),
+    mitigation:"",
+    action:"", actionOwner:"", actionDueDate:"", actionStatus:"", actionCompletion:0,
+    relatedItem:"", notes:"" },
+  { type:"Assumption", title:"Resources Allocation",
+    description:"- Not planned well we asking for resources without proper planning",
+    project:"Team Retro — Red Flags", workstream:"Delivery & Execution", owner:"Saied", status:"Open", priority:"Medium",
+    dateRaised:d(0), dueDate:d(14), reviewDate:d(14),
+    mitigation:"",
+    action:"Need to make Backlog refinement activity and the squad lead should study well the resources needed with other leads before starting our sprint", actionOwner:"Saied", actionDueDate:d(14), actionStatus:"Not Started", actionCompletion:0,
+    relatedItem:"", notes:"" },
+  { type:"Assumption", title:"Assesment & Development",
+    description:"- Leads should have Assesment and Revewing thier teams KPIs and take an action for thier development",
+    project:"Team Retro — Red Flags", workstream:"Process & Ways of Working", owner:"QC-Team", status:"Open", priority:"Medium",
+    dateRaised:d(0), dueDate:d(14), reviewDate:d(14),
+    mitigation:"",
+    action:"", actionOwner:"", actionDueDate:"", actionStatus:"", actionCompletion:0,
+    relatedItem:"", notes:"" },
+  { type:"Risk", title:"Team Structure & Squads",
+    description:"- Need clear squad setup for our team members",
+    project:"Team Retro — Red Flags", workstream:"Team & Culture", owner:"Azzam & Saied", status:"Open",
+    probability:5, impact:2, dateRaised:d(0), dueDate:d(14), reviewDate:d(14),
+    mitigation:"",
+    action:"", actionOwner:"", actionDueDate:"", actionStatus:"", actionCompletion:0,
+    relatedItem:"", notes:"" },
+  { type:"Dependency", title:"KPIs - Current System",
+    description:"- All not satisfied for the current Bonus schema and need to re-implement something more realistic",
+    project:"Team Retro — Red Flags", workstream:"Tooling & Automation", owner:"All People", status:"Open", priority:"Medium",
+    dateRaised:d(0), dueDate:d(14), reviewDate:d(14),
+    mitigation:"",
+    action:"", actionOwner:"", actionDueDate:"", actionStatus:"", actionCompletion:0,
+    relatedItem:"", notes:"" },
+  { type:"Assumption", title:"Abusing Case - QC",
+    description:"- An action in such cases should be taken in professional way!",
+    project:"Team Retro — Red Flags", workstream:"Delivery & Execution", owner:"Saied", status:"Open", priority:"Medium",
+    dateRaised:d(0), dueDate:d(14), reviewDate:d(14),
+    mitigation:"",
+    action:"", actionOwner:"", actionDueDate:"", actionStatus:"", actionCompletion:0,
+    relatedItem:"", notes:"" },
+  { type:"Dependency", title:"Jira Cards - With No Action",
+    description:"- We have alot of cards need an actions and no one raising flag about them we need to build automation rule for it about the escalation",
+    project:"Team Retro — Red Flags", workstream:"Process & Ways of Working", owner:"Azzam", status:"Open", priority:"Medium",
+    dateRaised:d(0), dueDate:d(14), reviewDate:d(14),
+    mitigation:"",
+    action:"", actionOwner:"", actionDueDate:"", actionStatus:"", actionCompletion:0,
+    relatedItem:"", notes:"" },
+  { type:"Issue", title:"Dev-Station",
+    description:"Skeleton setuped from long time and till now not used in proper way",
+    project:"Team Retro — Red Flags", workstream:"Team & Culture", owner:"Azzam", status:"Open", priority:"Medium",
+    dateRaised:d(0), dueDate:d(14), reviewDate:d(14),
+    mitigation:"",
+    action:"", actionOwner:"", actionDueDate:"", actionStatus:"", actionCompletion:0,
+    relatedItem:"", notes:"" },
+  { type:"Risk", title:"Environment Stability",
+    description:"Staging Not stable , alot of downtime",
+    project:"Team Retro — Red Flags", workstream:"Tooling & Automation", owner:"More than one of the team", status:"Open",
+    probability:2, impact:4, dateRaised:d(0), dueDate:d(14), reviewDate:d(14),
+    mitigation:"",
+    action:"", actionOwner:"", actionDueDate:"", actionStatus:"", actionCompletion:0,
+    relatedItem:"", notes:"" },
+  { type:"Issue", title:"Leads Communication issues",
+    description:"Alot of leads have an issue in communication and way of respect others",
+    project:"Team Retro — Red Flags", workstream:"Delivery & Execution", owner:"Saied", status:"Open", priority:"Medium",
+    dateRaised:d(0), dueDate:d(14), reviewDate:d(14),
+    mitigation:"",
+    action:"", actionOwner:"", actionDueDate:"", actionStatus:"", actionCompletion:0,
+    relatedItem:"", notes:"" },
+  { type:"Issue", title:"Automation is AMUST",
+    description:"",
+    project:"Team Retro — Red Flags", workstream:"Process & Ways of Working", owner:"Saied", status:"Open", priority:"Medium",
+    dateRaised:d(0), dueDate:d(14), reviewDate:d(14),
+    mitigation:"",
+    action:"", actionOwner:"", actionDueDate:"", actionStatus:"", actionCompletion:0,
+    relatedItem:"", notes:"" },
+  { type:"Assumption", title:"Promoting career path",
+    description:"",
+    project:"Team Retro — Red Flags", workstream:"Team & Culture", owner:"Saied", status:"Open", priority:"Medium",
+    dateRaised:d(0), dueDate:d(14), reviewDate:d(14),
+    mitigation:"",
+    action:"", actionOwner:"", actionDueDate:"", actionStatus:"", actionCompletion:0,
+    relatedItem:"", notes:"" },
+  { type:"Assumption", title:"Leave Settlment Squad Delivery",
+    description:"",
+    project:"Team Retro — Red Flags", workstream:"Tooling & Automation", owner:"Saied", status:"Open", priority:"Medium",
+    dateRaised:d(0), dueDate:d(14), reviewDate:d(14),
+    mitigation:"",
+    action:"", actionOwner:"", actionDueDate:"", actionStatus:"", actionCompletion:0,
+    relatedItem:"", notes:"" },
+];
+
+function buildDemoData(){
+  const now = new Date().toISOString();
+  return RAW_ITEMS.map((raw, i)=>{
+    const item = Object.assign({}, raw);
+    item.id = nextId(item.type);
+    if(item.type === "Risk"){
+      item.riskScore = riskScore(item.probability, item.impact);
+      item.riskLevel = riskLevel(item.riskScore);
+      item.priority = item.riskLevel; // priority derives from risk score for Risk items
+    } else {
+      item.probability = null; item.impact = null; item.riskScore = null; item.riskLevel = null;
+      item.priority = item.priority || "Medium";
+    }
+    item.createdDate = d(-((RAW_ITEMS.length - i) + 60));
+    item.lastUpdated = item.dateRaised;
+    item.history = [
+      { date:item.createdDate, note:`${item.type} logged by ${item.owner}.` },
+    ];
+    if(item.status !== "Open"){
+      item.history.push({ date:item.dateRaised, note:`Status set to "${item.status}".` });
+    }
+    return item;
+  });
+}
+
+/* Seed the first-class Actions collection from the "next step" fields already
+   embedded on each RAID item, so demo data stays consistent across both
+   views. Going forward the two are independent records — editing a RAID
+   item's own action note does not rewrite its Action-register counterpart,
+   and vice versa; that's a deliberate simplification for this phase. */
+function buildDemoActions(items){
+  return items.filter(it=>it.action && it.action.trim()).map(it=>({
+    id: nextActionId(),
+    description: it.action,
+    relatedItem: it.id,
+    owner: it.actionOwner || it.owner,
+    dueDate: it.actionDueDate || "",
+    status: it.actionStatus || "Not Started",
+    priority: it.priority || "Medium",
+    completionPct: it.actionCompletion || 0,
+    createdDate: it.dateRaised,
+    lastUpdated: it.lastUpdated,
+    history: [{ date: it.dateRaised, note:`Action logged against ${it.id}.` }],
+  }));
+}
+
+/* ---------- filter defaults (single source of truth — used on init, on nav
+   switch, and by every "clear filters" / "clear one filter" action, so the
+   shape can never drift out of sync between those call sites) ---------- */
+function defaultFilters(){
+  return { type:"", status:"", priority:"", owner:"", project:"", workstream:"", riskLevel:"", dueRange:"", overdue:false, probability:"", impact:"" };
+}
+function defaultActionFilters(){
+  return { status:"", priority:"", owner:"", relatedType:"", dueRange:"", overdue:false };
+}
+
+/* ---------- dataset validation / normalization ----------
+   Shared by both load paths that hand this app data it didn't just create
+   itself — reading back from local storage, and importing a JSON backup —
+   so both get exactly the same "don't trust what you're handed" treatment:
+   records that don't look like a real RAID item / action are dropped
+   rather than crashing the whole load, and every kept record is backfilled
+   for any field an older or hand-edited export might be missing. Risk
+   Score / Risk Level are always recomputed from probability x impact here
+   rather than trusted from the file, so a tampered or stale export can't
+   show a score that doesn't match its own probability/impact. ---------- */
+function isValidRaidItem(it){
+  if(!it || typeof it!=="object") return false;
+  if(!TYPES.includes(it.type)) return false;
+  if(typeof it.id!=="string" || !it.id.trim()) return false;
+  if(!it.id.startsWith(TYPE_META[it.type].prefix + "-")) return false; // e.g. a "Risk" must be "RISK-###"
+  if(typeof it.title!=="string" || !it.title.trim()) return false;
+  if(!STATUS_BY_TYPE[it.type].includes(it.status)) return false;
+  if(typeof it.owner!=="string" || !it.owner.trim()) return false;
+  if(typeof it.project!=="string" || !it.project.trim()) return false;
+  if(typeof it.workstream!=="string" || !it.workstream.trim()) return false;
+  if(typeof it.dateRaised!=="string" || !parseISO(it.dateRaised)) return false;
+  if(it.type==="Risk"){
+    const p = Number(it.probability), i = Number(it.impact);
+    if(!Number.isFinite(p) || p<1 || p>5 || !Number.isFinite(i) || i<1 || i>5) return false;
+  }
+  return true;
+}
+function normalizeRaidItem(raw){
+  const it = Object.assign({}, raw);
+  it.description = typeof it.description==="string" ? it.description : "";
+  it.priority = PRIORITIES.includes(it.priority) ? it.priority : "Medium";
+  it.dueDate = typeof it.dueDate==="string" ? it.dueDate : "";
+  it.reviewDate = typeof it.reviewDate==="string" ? it.reviewDate : "";
+  it.mitigation = typeof it.mitigation==="string" ? it.mitigation : "";
+  it.action = typeof it.action==="string" ? it.action : "";
+  it.actionOwner = typeof it.actionOwner==="string" ? it.actionOwner : "";
+  it.actionDueDate = typeof it.actionDueDate==="string" ? it.actionDueDate : "";
+  it.actionStatus = typeof it.actionStatus==="string" ? it.actionStatus : "";
+  it.actionCompletion = Number.isFinite(Number(it.actionCompletion)) ? Number(it.actionCompletion) : 0;
+  it.createdDate = (typeof it.createdDate==="string" && it.createdDate) ? it.createdDate : it.dateRaised;
+  it.lastUpdated = (typeof it.lastUpdated==="string" && it.lastUpdated) ? it.lastUpdated : it.dateRaised;
+  it.history = Array.isArray(it.history) ? it.history.filter(h=>h && typeof h.note==="string") : [];
+  if(it.type==="Risk"){
+    it.probability = Number(it.probability);
+    it.impact = Number(it.impact);
+    it.riskScore = riskScore(it.probability, it.impact);
+    it.riskLevel = riskLevel(it.riskScore);
+  } else {
+    it.probability = null; it.impact = null; it.riskScore = null; it.riskLevel = null;
+  }
+  return it;
+}
+function isValidAction(a){
+  if(!a || typeof a!=="object") return false;
+  if(typeof a.id!=="string" || !a.id.trim()) return false;
+  if(typeof a.description!=="string" || !a.description.trim()) return false;
+  if(!ACTION_STATUSES_FULL.includes(a.status)) return false;
+  if(typeof a.owner!=="string" || !a.owner.trim()) return false;
+  return true;
+}
+function normalizeAction(raw){
+  const a = Object.assign({}, raw);
+  a.relatedItem = typeof a.relatedItem==="string" ? a.relatedItem : "";
+  a.priority = PRIORITIES.includes(a.priority) ? a.priority : "Medium";
+  a.dueDate = typeof a.dueDate==="string" ? a.dueDate : "";
+  a.completionPct = Number.isFinite(Number(a.completionPct)) ? Math.max(0, Math.min(100, Number(a.completionPct))) : 0;
+  a.createdDate = (typeof a.createdDate==="string" && a.createdDate) ? a.createdDate : todayISO();
+  a.lastUpdated = (typeof a.lastUpdated==="string" && a.lastUpdated) ? a.lastUpdated : a.createdDate;
+  a.history = Array.isArray(a.history) ? a.history.filter(h=>h && typeof h.note==="string") : [];
+  return a;
+}
+function validateAndNormalizeDataset(parsed){
+  if(!parsed || typeof parsed!=="object") return { ok:false, reason:"That file doesn't look like a RAID Log Tracker backup." };
+  const rawItems = Array.isArray(parsed.items) ? parsed.items : null;
+  const rawActions = Array.isArray(parsed.actions) ? parsed.actions : null;
+  if(!rawItems || !rawActions) return { ok:false, reason:'Expected "items" and "actions" arrays in the file.' };
+
+  let droppedItems = 0, droppedActions = 0;
+  const seenItemIds = new Set();
+  const items = [];
+  rawItems.forEach(raw=>{
+    if(isValidRaidItem(raw) && !seenItemIds.has(raw.id)){ seenItemIds.add(raw.id); items.push(normalizeRaidItem(raw)); }
+    else droppedItems++;
+  });
+  const seenActionIds = new Set();
+  const actions = [];
+  rawActions.forEach(raw=>{
+    if(isValidAction(raw) && !seenActionIds.has(raw.id)){ seenActionIds.add(raw.id); actions.push(normalizeAction(raw)); }
+    else droppedActions++;
+  });
+  if(!items.length && !actions.length) return { ok:false, reason:"No valid RAID items or actions were found in the file." };
+  return { ok:true, items, actions, droppedItems, droppedActions };
+}
+function loadStoredData(){
+  if(!STORAGE_AVAILABLE) return { ok:false, reason:"unavailable" };
+  let raw;
+  try{ raw = window.localStorage.getItem(STORAGE_KEY); }catch(e){ return { ok:false, reason:"unavailable" }; }
+  if(raw==null) return { ok:false, reason:"none" };
+  let parsed;
+  try{ parsed = JSON.parse(raw); }catch(e){ return { ok:false, reason:"corrupt" }; }
+  const result = validateAndNormalizeDataset(parsed);
+  if(!result.ok) return { ok:false, reason:"invalid", detail: result.reason };
+  return result;
+}
+function deepClone(x){ return JSON.parse(JSON.stringify(x)); }
+
+/* Handles the four required boot states: first-time visitor (no stored
+   data yet), a returning visitor with valid stored data, a returning
+   visitor whose stored data is corrupt/unreadable/invalid, and the
+   no-localStorage-available edge case — always resolving to a usable
+   items/actions pair plus an optional one-line notice for the toast. */
+function computeBoot(){
+  if(!STORAGE_AVAILABLE){
+    return {
+      items: deepClone(ORIGINAL_DEMO_ITEMS), actions: deepClone(ORIGINAL_DEMO_ACTIONS),
+      notice: "This browser context doesn't allow local storage, so changes won't be saved between visits.",
+      firstRun:true, canPersist:false,
+    };
+  }
+  const stored = loadStoredData();
+  if(stored.ok){
+    const parts = [];
+    if(stored.droppedItems) parts.push(`${stored.droppedItems} invalid RAID item${stored.droppedItems===1?"":"s"}`);
+    if(stored.droppedActions) parts.push(`${stored.droppedActions} invalid action${stored.droppedActions===1?"":"s"}`);
+    return {
+      items: stored.items, actions: stored.actions,
+      notice: parts.length ? `Loaded your saved data — skipped ${parts.join(" and ")}.` : null,
+      firstRun:false, canPersist:true,
+    };
+  }
+  if(stored.reason==="none"){
+    return { items: deepClone(ORIGINAL_DEMO_ITEMS), actions: deepClone(ORIGINAL_DEMO_ACTIONS), notice:null, firstRun:true, canPersist:true };
+  }
+  return {
+    items: deepClone(ORIGINAL_DEMO_ITEMS), actions: deepClone(ORIGINAL_DEMO_ACTIONS),
+    notice: "Your saved data couldn't be read, so demo data was loaded instead.",
+    firstRun:false, canPersist:true,
+  };
+}
+
+/* =========================================================================
+   DATA SERVICE ABSTRACTION
+   -------------------------------------------------------------------------
+   The UI (render functions + click/input handlers) never touches
+   localStorage or a Google Sheet directly, and never assumes which one is
+   behind the data. It only ever calls methods on `dataService`
+   (getActiveDataService()) — getRaidItems/createRaidItem/updateRaidItem/
+   deleteRaidItem, getActions/createAction/updateAction/deleteAction,
+   getProjects/getWorkstreams, syncFromGoogleSheets/syncToGoogleSheets.
+   Three concrete services implement that same interface:
+
+     LocalDataService   — real, working. Backs onto this browser's
+                           localStorage (exactly the persistence this app
+                           already had).
+     DemoDataService     — real, working. Serves the baked-in sample
+                           dataset; writes are in-memory only for the
+                           session and are never saved.
+     GoogleSheetsDataService — a real, working implementation that talks to
+                           a Google Apps Script Web App bound to the target
+                           Sheet (see the accompanying Code.gs backend and
+                           deployment steps). It only reaches Google when
+                           this page is hosted somewhere with real outbound
+                           network access — a published Claude Artifact's
+                           sandbox still blocks it, so connecting from
+                           inside the Artifact preview will fail with a
+                           network error rather than pretend to succeed.
+                           See Settings → Data Source for the connection
+                           field format and deployment steps.
+
+   A fourth class, MockGoogleSheetsDataService, simulates a real remote
+   sheet (with latency, independent-edit/conflict detection, and
+   injectable failures) purely so the whole integration — mapping, CRUD,
+   sync, conflicts — can be exercised and tested without real credentials
+   (see window.__RAID_TEST__ below). It is not used by the live UI unless
+   a test explicitly installs it in place of GoogleSheetsDataService.
+   ========================================================================= */
+
+/* ---- Google Sheet column layout (per the target workbook's 4 tabs) ---- */
+const SHEET_COLUMNS = {
+  RAID: ["ID","Type","Title","Description","Project","Workstream","Owner","Status","Priority",
+    "Date Raised","Due Date","Review Date","Probability","Impact","Risk Score","Risk Level",
+    "Mitigation","Action","Action Owner","Action Due Date","Related Item","Notes","Created Date","Last Updated"],
+  ACTIONS: ["Action ID","Related RAID ID","Description","Owner","Due Date","Status","Priority","Completion %","Created Date","Last Updated"],
+  PROJECTS: ["Project ID","Project Name","Project Manager","Status","Start Date","End Date"],
+  WORKSTREAMS: ["Workstream ID","Project ID","Workstream Name","Owner","Status"],
+};
+
+/* ---- cell parsing: sheet cells arrive as loosely-typed strings/blanks ---- */
+function cellStr(v){ return v==null ? "" : String(v).trim(); }
+function cellNumber(v){
+  if(v==null || v==="") return null;
+  const n = Number(v);
+  return isNaN(n) ? null : n;
+}
+function cellDate(v){
+  if(v==null || v==="") return "";
+  if(v instanceof Date) return isNaN(v) ? "" : v.toISOString().slice(0,10);
+  const s = String(v).trim();
+  if(!s) return "";
+  if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10); // already ISO
+  const d = new Date(s);
+  return isNaN(d) ? "" : d.toISOString().slice(0,10);
+}
+function cellBool(v){
+  if(typeof v==="boolean") return v;
+  const s = cellStr(v).toLowerCase();
+  return s==="true" || s==="yes" || s==="1";
+}
+
+/* ---- Sheet row <-> app object mapping ----
+   Handles empty cells, dates, numbers, booleans, invalid risk scores and
+   missing IDs. Risk Score/Risk Level are ALWAYS recomputed by the app from
+   Probability x Impact — a value sitting in the sheet's own Risk Score /
+   Risk Level columns is read for reference only and is never trusted. */
+function mapRowToRaidItem(row){
+  row = row || {};
+  let type = cellStr(row["Type"]);
+  if(!TYPES.includes(type)) type = "Risk";
+  const probability = cellNumber(row["Probability"]);
+  const impact = cellNumber(row["Impact"]);
+  const isRisk = type==="Risk";
+  const p = isRisk ? (probability && probability>=1 && probability<=5 ? probability : 3) : null;
+  const i = isRisk ? (impact && impact>=1 && impact<=5 ? impact : 3) : null;
+  const score = isRisk ? riskScore(p, i) : null;
+  const level = isRisk ? riskLevel(score) : null;
+  const id = cellStr(row["ID"]) || nextId(type); // missing ID in the sheet -> app assigns a stable one
+  const project = cellStr(row["Project"]) || Object.keys(PROJECTS)[0];
+  const status = cellStr(row["Status"]) || STATUS_BY_TYPE[type][0];
+  return normalizeRaidItem({
+    id, type,
+    title: cellStr(row["Title"]) || "(untitled)",
+    description: cellStr(row["Description"]),
+    project,
+    workstream: cellStr(row["Workstream"]) || (PROJECTS[project]||[])[0] || "",
+    owner: cellStr(row["Owner"]) || "Unassigned",
+    status,
+    priority: isRisk ? level : (cellStr(row["Priority"]) || "Medium"),
+    dateRaised: cellDate(row["Date Raised"]) || todayISO(),
+    dueDate: cellDate(row["Due Date"]),
+    reviewDate: cellDate(row["Review Date"]),
+    probability: p, impact: i, riskScore: score, riskLevel: level,
+    mitigation: cellStr(row["Mitigation"]),
+    action: cellStr(row["Action"]),
+    actionOwner: cellStr(row["Action Owner"]),
+    actionDueDate: cellDate(row["Action Due Date"]),
+    actionStatus: "", actionCompletion: 0,
+    relatedItem: cellStr(row["Related Item"]),
+    notes: cellStr(row["Notes"]),
+    createdDate: cellDate(row["Created Date"]) || todayISO(),
+    lastUpdated: cellDate(row["Last Updated"]) || todayISO(),
+    history: [],
+  });
+}
+function mapRaidItemToRow(item){
+  item = item || {};
+  return {
+    "ID": item.id||"", "Type": item.type||"", "Title": item.title||"", "Description": item.description||"",
+    "Project": item.project||"", "Workstream": item.workstream||"", "Owner": item.owner||"", "Status": item.status||"",
+    "Priority": item.priority||"", "Date Raised": item.dateRaised||"", "Due Date": item.dueDate||"", "Review Date": item.reviewDate||"",
+    "Probability": item.probability==null?"":item.probability, "Impact": item.impact==null?"":item.impact,
+    "Risk Score": item.riskScore==null?"":item.riskScore, "Risk Level": item.riskLevel||"",
+    "Mitigation": item.mitigation||"", "Action": item.action||"", "Action Owner": item.actionOwner||"",
+    "Action Due Date": item.actionDueDate||"", "Related Item": item.relatedItem||"", "Notes": item.notes||"",
+    "Created Date": item.createdDate||"", "Last Updated": item.lastUpdated||"",
+  };
+}
+function mapRowToAction(row){
+  row = row || {};
+  let completion = cellNumber(row["Completion %"]); if(completion==null) completion = 0;
+  completion = Math.max(0, Math.min(100, completion));
+  let status = cellStr(row["Status"]) || "Not Started";
+  if(!ACTION_STATUSES_FULL.includes(status)) status = "Not Started";
+  if(completion===100) status = "Complete";
+  if(status==="Complete") completion = 100;
+  const id = cellStr(row["Action ID"]) || nextActionId(); // missing ID -> app assigns a stable one
+  return normalizeAction({
+    id,
+    relatedItem: cellStr(row["Related RAID ID"]),
+    description: cellStr(row["Description"]) || "(no description)",
+    owner: cellStr(row["Owner"]) || "Unassigned",
+    dueDate: cellDate(row["Due Date"]),
+    status,
+    priority: cellStr(row["Priority"]) || "Medium",
+    completionPct: completion,
+    createdDate: cellDate(row["Created Date"]) || todayISO(),
+    lastUpdated: cellDate(row["Last Updated"]) || todayISO(),
+    history: [],
+  });
+}
+function mapActionToRow(a){
+  a = a || {};
+  return {
+    "Action ID": a.id||"", "Related RAID ID": a.relatedItem||"", "Description": a.description||"", "Owner": a.owner||"",
+    "Due Date": a.dueDate||"", "Status": a.status||"", "Priority": a.priority||"",
+    "Completion %": a.completionPct==null?0:a.completionPct,
+    "Created Date": a.createdDate||"", "Last Updated": a.lastUpdated||"",
+  };
+}
+function mapRowToProject(row){
+  row = row || {};
+  return {
+    id: cellStr(row["Project ID"]) || cellStr(row["Project Name"]),
+    name: cellStr(row["Project Name"]), manager: cellStr(row["Project Manager"]),
+    status: cellStr(row["Status"]) || "Active",
+    startDate: cellDate(row["Start Date"]), endDate: cellDate(row["End Date"]),
+  };
+}
+function mapRowToWorkstream(row){
+  row = row || {};
+  return {
+    id: cellStr(row["Workstream ID"]) || cellStr(row["Workstream Name"]),
+    projectId: cellStr(row["Project ID"]), name: cellStr(row["Workstream Name"]),
+    owner: cellStr(row["Owner"]), status: cellStr(row["Status"]) || "Active",
+  };
+}
+/* Projects/Workstreams don't have their own editable records in this build
+   (the app's single source for them is the PROJECTS map) — these adapt that
+   map to the shape getProjects()/getWorkstreams() are expected to return,
+   so the interface is honored even though there's no separate CRUD UI for
+   them yet. */
+function projectsAsList(){
+  return Object.keys(PROJECTS).map(name=>mapRowToProject({ "Project ID":name, "Project Name":name, "Status":"Active" }));
+}
+function workstreamsAsList(){
+  const list = [];
+  Object.entries(PROJECTS).forEach(([proj, streams])=>{
+    (streams||[]).forEach(ws=> list.push(mapRowToWorkstream({ "Workstream ID":`${proj}::${ws}`, "Project ID":proj, "Workstream Name":ws, "Status":"Active" })));
+  });
+  return list;
+}
+
+/* ---- LocalDataService: real, working — this browser's localStorage ---- */
+class LocalDataService {
+  constructor(){ this.name = "Local storage"; }
+  loadAll(){ return Promise.resolve(computeBoot()); }
+  getRaidItems(){ return Promise.resolve(deepClone(state.items)); }
+  getActions(){ return Promise.resolve(deepClone(state.actions)); }
+  getProjects(){ return Promise.resolve(projectsAsList()); }
+  getWorkstreams(){ return Promise.resolve(workstreamsAsList()); }
+  createRaidItem(item){ state.items.unshift(item); persistData(); return Promise.resolve(item); }
+  updateRaidItem(id, item){
+    const idx = state.items.findIndex(it=>it.id===id);
+    if(idx<0) return Promise.reject(new Error(`RAID item ${id} not found.`));
+    state.items[idx] = item; persistData(); return Promise.resolve(item);
+  }
+  deleteRaidItem(id){
+    const idx = state.items.findIndex(it=>it.id===id);
+    if(idx<0) return Promise.resolve(null);
+    const removed = state.items.splice(idx,1)[0]; persistData(); return Promise.resolve(removed);
+  }
+  createAction(a){ state.actions.unshift(a); persistData(); return Promise.resolve(a); }
+  updateAction(id, a){
+    const idx = state.actions.findIndex(x=>x.id===id);
+    if(idx<0) return Promise.reject(new Error(`Action ${id} not found.`));
+    state.actions[idx] = a; persistData(); return Promise.resolve(a);
+  }
+  deleteAction(id){
+    const idx = state.actions.findIndex(x=>x.id===id);
+    if(idx<0) return Promise.resolve(null);
+    const removed = state.actions.splice(idx,1)[0]; persistData(); return Promise.resolve(removed);
+  }
+  resetToDemo(){
+    state.items = deepClone(ORIGINAL_DEMO_ITEMS);
+    state.actions = deepClone(ORIGINAL_DEMO_ACTIONS);
+    persistData();
+    return Promise.resolve({ items: deepClone(state.items), actions: deepClone(state.actions) });
+  }
+  replaceAll(items, actions){
+    state.items = items; state.actions = actions;
+    persistData();
+    return Promise.resolve({ items: deepClone(state.items), actions: deepClone(state.actions) });
+  }
+  syncFromGoogleSheets(){ return Promise.reject(new Error("Not connected to Google Sheets — currently in Local mode.")); }
+  syncToGoogleSheets(){ return Promise.reject(new Error("Not connected to Google Sheets — currently in Local mode.")); }
+}
+
+/* ---- DemoDataService: real, working — in-memory sample dataset ---- */
+class DemoDataService {
+  constructor(){ this.name = "Demo data"; }
+  loadAll(){
+    return Promise.resolve({
+      items: deepClone(ORIGINAL_DEMO_ITEMS), actions: deepClone(ORIGINAL_DEMO_ACTIONS),
+      notice: "Showing sample demo data. Changes made in Demo mode are not saved.",
+      firstRun:true, canPersist:false,
+    });
+  }
+  getRaidItems(){ return Promise.resolve(deepClone(state.items)); }
+  getActions(){ return Promise.resolve(deepClone(state.actions)); }
+  getProjects(){ return Promise.resolve(projectsAsList()); }
+  getWorkstreams(){ return Promise.resolve(workstreamsAsList()); }
+  createRaidItem(item){ state.items.unshift(item); return Promise.resolve(item); }
+  updateRaidItem(id, item){
+    const idx = state.items.findIndex(it=>it.id===id);
+    if(idx<0) return Promise.reject(new Error(`RAID item ${id} not found.`));
+    state.items[idx] = item; return Promise.resolve(item);
+  }
+  deleteRaidItem(id){
+    const idx = state.items.findIndex(it=>it.id===id);
+    if(idx<0) return Promise.resolve(null);
+    return Promise.resolve(state.items.splice(idx,1)[0]);
+  }
+  createAction(a){ state.actions.unshift(a); return Promise.resolve(a); }
+  updateAction(id, a){
+    const idx = state.actions.findIndex(x=>x.id===id);
+    if(idx<0) return Promise.reject(new Error(`Action ${id} not found.`));
+    state.actions[idx] = a; return Promise.resolve(a);
+  }
+  deleteAction(id){
+    const idx = state.actions.findIndex(x=>x.id===id);
+    if(idx<0) return Promise.resolve(null);
+    return Promise.resolve(state.actions.splice(idx,1)[0]);
+  }
+  syncFromGoogleSheets(){ return Promise.reject(new Error("Not connected to Google Sheets — currently in Demo mode.")); }
+  syncToGoogleSheets(){ return Promise.reject(new Error("Not connected to Google Sheets — currently in Demo mode.")); }
+}
+
+/* ---- GoogleSheetsDataService: real live-sync implementation ----
+   Talks to a Google Apps Script Web App bound to the target Sheet (see the
+   companion Code.gs backend + deployment steps). The "Google Sheet" field
+   in Settings doubles as the full endpoint: paste the Apps Script Web App's
+   /exec URL with ?token=YOUR_SECRET appended, e.g.
+     https://script.google.com/macros/s/AKfycb.../exec?token=abc123
+   All mapping (row <-> app object, ID assignment, risk score calculation)
+   stays in THIS file — the Apps Script backend only ever reads/writes
+   plain rows keyed by the sheet's own header names, so Risk Score/Level are
+   still always recomputed here, never trusted from the sheet.
+   This only actually reaches Google once the page is hosted somewhere with
+   real outbound network access — a published Claude Artifact's sandbox
+   still blocks it, so connecting from inside the Artifact preview fails
+   with a network error (see _friendlyNetworkError below) rather than
+   pretending to succeed. */
+class GoogleSheetsDataService {
+  constructor(){ this.name = "Google Sheets"; this.sheetUrl = null; this._revision = null; }
+  _endpoint(action){
+    if(!this.sheetUrl) throw new Error("No Google Sheet connected yet.");
+    const sep = this.sheetUrl.includes("?") ? "&" : "?";
+    return `${this.sheetUrl}${sep}action=${encodeURIComponent(action)}`;
+  }
+  _friendlyNetworkError(err){
+    const msg = (err && err.message) || String(err);
+    return new Error(
+      `Couldn't reach the Google Sheet backend (${msg}). If this app is running inside a published Claude `+
+      `Artifact, that's expected — its sandbox blocks outbound network calls, so live sync only works once `+
+      `this app is hosted somewhere with real network access. See Settings → Data Source for the Apps Script `+
+      `deployment steps.`
+    );
+  }
+  _get(action){
+    return Promise.resolve()
+      .then(()=> fetch(this._endpoint(action)))
+      .then(r=> r.json())
+      .catch(err=>{ throw this._friendlyNetworkError(err); })
+      .then(data=>{ if(data && data.error) throw new Error(data.error); return data; });
+  }
+  _post(action, payload){
+    return Promise.resolve()
+      .then(()=> fetch(this._endpoint(action), {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" }, // avoids a CORS preflight Apps Script can't answer
+        body: JSON.stringify(payload || {}),
+      }))
+      .then(r=> r.json())
+      .catch(err=>{ throw this._friendlyNetworkError(err); })
+      .then(data=>{ if(data && data.error) throw new Error(data.error); return data; });
+  }
+  connect(sheetUrl){
+    this.sheetUrl = (sheetUrl||"").trim() || null;
+    if(!this.sheetUrl) return Promise.reject(new Error("Paste your Apps Script Web App URL (with ?token=...) first."));
+    return this._get("getRevision").then(data=>{ this._revision = data.revision; return true; });
+  }
+  disconnect(){ this.sheetUrl = null; this._revision = null; return Promise.resolve(); }
+  loadAll(){
+    return this._get("loadAll").then(data=>{
+      this._revision = data.revision;
+      return {
+        items: (data.items||[]).map(mapRowToRaidItem),
+        actions: (data.actions||[]).map(mapRowToAction),
+        notice: null, firstRun:false, canPersist:true,
+      };
+    });
+  }
+  getRaidItems(){ return this._get("getRaidItems").then(d=> (d.rows||[]).map(mapRowToRaidItem)); }
+  getActions(){ return this._get("getActions").then(d=> (d.rows||[]).map(mapRowToAction)); }
+  getProjects(){ return this._get("getProjects").then(d=> (d.rows||[]).map(mapRowToProject)); }
+  getWorkstreams(){ return this._get("getWorkstreams").then(d=> (d.rows||[]).map(mapRowToWorkstream)); }
+  createRaidItem(item){
+    return this._post("createRow", { sheet:"RAID", idColumn:"ID", row: mapRaidItemToRow(item) }).then(()=> item);
+  }
+  updateRaidItem(id, item){
+    return this._post("updateRow", { sheet:"RAID", idColumn:"ID", id, row: mapRaidItemToRow(item) }).then(()=> item);
+  }
+  deleteRaidItem(id){
+    return this._post("deleteRow", { sheet:"RAID", idColumn:"ID", id }).then(()=> ({id}));
+  }
+  createAction(a){
+    return this._post("createRow", { sheet:"ACTIONS", idColumn:"Action ID", row: mapActionToRow(a) }).then(()=> a);
+  }
+  updateAction(id, a){
+    return this._post("updateRow", { sheet:"ACTIONS", idColumn:"Action ID", id, row: mapActionToRow(a) }).then(()=> a);
+  }
+  deleteAction(id){
+    return this._post("deleteRow", { sheet:"ACTIONS", idColumn:"Action ID", id }).then(()=> ({id}));
+  }
+  syncFromGoogleSheets(){
+    return this._get("loadAll").then(data=>{
+      const conflict = this._revision!=null && data.revision!==this._revision;
+      this._revision = data.revision;
+      return {
+        items: (data.items||[]).map(mapRowToRaidItem),
+        actions: (data.actions||[]).map(mapRowToAction),
+        conflict,
+      };
+    });
+  }
+  syncToGoogleSheets(items, actions){
+    return this._post("replaceAll", {
+      baseRevision: this._revision,
+      raidRows: (items||[]).map(mapRaidItemToRow),
+      actionRows: (actions||[]).map(mapActionToRow),
+    }).then(data=>{
+      if(data.conflict) return { ok:false, conflict:true, message: data.message || "Google Sheet has changed since the last sync." };
+      this._revision = data.revision;
+      return { ok:true, conflict:false };
+    });
+  }
+}
+
+/* ---- MockGoogleSheetsDataService: a real fake remote sheet, for testing ----
+   Simulates network latency, lets a test edit the "remote" sheet out from
+   under the app (to trigger conflict detection), and exposes failNext /
+   offline switches to simulate a failed sync and offline mode. Used by the
+   Playwright integration tests via window.__RAID_TEST__.installMockGoogleSheets(),
+   which substitutes it for GoogleSheetsDataService so Google mode can be
+   exercised end-to-end without real credentials. */
+class MockGoogleSheetsDataService {
+  constructor(seedItems, seedActions){
+    this.name = "Google Sheets (mock, for testing)";
+    this._items = deepClone(seedItems||[]);
+    this._actions = deepClone(seedActions||[]);
+    this._remoteRevision = 1;
+    this._lastSyncedRevision = 1;
+    this.latencyMs = 5;
+    this.failNext = false;
+    this.offline = false;
+  }
+  _delay(fn){
+    return new Promise((resolve, reject)=>{
+      setTimeout(()=>{
+        if(this.offline){ reject(new Error("Offline — can't reach Google Sheets.")); return; }
+        if(this.failNext){ this.failNext = false; reject(new Error("Simulated Google Sheets API failure.")); return; }
+        try{ resolve(fn()); }catch(e){ reject(e); }
+      }, this.latencyMs);
+    });
+  }
+  // Test-only: mutate the "remote" sheet as if someone edited it directly in
+  // Google Sheets, independent of this app, so a later sync sees a conflict.
+  simulateExternalEdit(mutator){ mutator(this._items, this._actions); this._remoteRevision++; }
+  hasRemoteChangedSinceSync(){ return this._remoteRevision !== this._lastSyncedRevision; }
+  _reconcileRow(row){
+    if(row.type==="Risk" && row.probability && row.impact){
+      row.riskScore = riskScore(row.probability, row.impact);
+      row.riskLevel = riskLevel(row.riskScore);
+    }
+    return row;
+  }
+  connect(sheetUrl){ this.sheetUrl = sheetUrl||null; return this._delay(()=>true); }
+  disconnect(){ return this._delay(()=>true); }
+  loadAll(){
+    return this._delay(()=>({
+      items: deepClone(this._items).map(r=>this._reconcileRow(r)),
+      actions: deepClone(this._actions),
+      notice: null, firstRun:false, canPersist:true,
+    }));
+  }
+  getRaidItems(){ return this._delay(()=> deepClone(this._items).map(r=>this._reconcileRow(r))); }
+  getActions(){ return this._delay(()=> deepClone(this._actions)); }
+  getProjects(){ return this._delay(()=> projectsAsList()); }
+  getWorkstreams(){ return this._delay(()=> workstreamsAsList()); }
+  createRaidItem(item){
+    return this._delay(()=>{
+      if(!item.id || this._items.some(it=>it.id===item.id)) item.id = nextId(item.type); // avoid duplicate IDs
+      this._items.unshift(item); this._remoteRevision++; this._lastSyncedRevision = this._remoteRevision;
+      return item;
+    });
+  }
+  updateRaidItem(id, item){
+    return this._delay(()=>{
+      const idx = this._items.findIndex(it=>it.id===id);
+      if(idx<0) throw new Error(`RAID item ${id} not found on the sheet.`);
+      this._items[idx] = item; this._remoteRevision++; this._lastSyncedRevision = this._remoteRevision;
+      return item;
+    });
+  }
+  deleteRaidItem(id){
+    return this._delay(()=>{
+      const idx = this._items.findIndex(it=>it.id===id);
+      if(idx<0) return null;
+      const removed = this._items.splice(idx,1)[0];
+      this._remoteRevision++; this._lastSyncedRevision = this._remoteRevision;
+      return removed;
+    });
+  }
+  createAction(a){
+    return this._delay(()=>{
+      if(!a.id || this._actions.some(x=>x.id===a.id)) a.id = nextActionId();
+      this._actions.unshift(a); this._remoteRevision++; this._lastSyncedRevision = this._remoteRevision;
+      return a;
+    });
+  }
+  updateAction(id, a){
+    return this._delay(()=>{
+      const idx = this._actions.findIndex(x=>x.id===id);
+      if(idx<0) throw new Error(`Action ${id} not found on the sheet.`);
+      this._actions[idx] = a; this._remoteRevision++; this._lastSyncedRevision = this._remoteRevision;
+      return a;
+    });
+  }
+  deleteAction(id){
+    return this._delay(()=>{
+      const idx = this._actions.findIndex(x=>x.id===id);
+      if(idx<0) return null;
+      const removed = this._actions.splice(idx,1)[0];
+      this._remoteRevision++; this._lastSyncedRevision = this._remoteRevision;
+      return removed;
+    });
+  }
+  syncFromGoogleSheets(){
+    return this._delay(()=>{
+      const conflict = this.hasRemoteChangedSinceSync();
+      this._lastSyncedRevision = this._remoteRevision;
+      return { items: deepClone(this._items).map(r=>this._reconcileRow(r)), actions: deepClone(this._actions), conflict };
+    });
+  }
+  syncToGoogleSheets(items, actions){
+    return this._delay(()=>{
+      if(this.hasRemoteChangedSinceSync()){
+        return { ok:false, conflict:true, message:"Google Sheet has changed since the last sync." };
+      }
+      this._items = deepClone(items); this._actions = deepClone(actions);
+      this._remoteRevision++; this._lastSyncedRevision = this._remoteRevision;
+      return { ok:true, conflict:false };
+    });
+  }
+}
+
+/* ---- active data service selection ---- */
+const localDataServiceInstance = new LocalDataService();
+const demoDataServiceInstance = new DemoDataService();
+const googleSheetsDataServiceInstance = new GoogleSheetsDataService();
+let _activeGoogleService = null;   // whichever Google-mode instance actually connected (real or test-installed mock)
+let _testGoogleOverride = null;    // set by window.__RAID_TEST__.installMockGoogleSheets() for integration tests
+function getActiveDataService(){
+  if(state.dataMode==="demo") return demoDataServiceInstance;
+  if(state.dataMode==="google") return _activeGoogleService || _testGoogleOverride || googleSheetsDataServiceInstance;
+  return localDataServiceInstance;
+}
+/* After any create/update/delete, pull the authoritative full lists back
+   from whichever service is active — this is what lets Local (which
+   mutates `state` directly), Demo (in-memory only) and a remote mock (its
+   own private store) all be treated identically by the UI. */
+function refreshFromService(){
+  const svc = getActiveDataService();
+  return Promise.all([svc.getRaidItems(), svc.getActions()]).then(([items, actions])=>{
+    state.items = items; state.actions = actions;
+    resyncIdCounters(items, actions);
+  });
+}
+function dataModeLabel(mode){ return mode==="google" ? "Google Sheets" : mode==="demo" ? "Demo data" : "Local storage"; }
+
+/* ---- Settings -> Data Source actions ---- */
+function setDataMode(mode){
+  if(mode==="google"){
+    const input = document.getElementById("ds-sheet-url");
+    connectGoogleSheet(input ? input.value.trim() : "");
+    return;
+  }
+  if(state.dataMode===mode) return;
+  state.dataMode = mode;
+  _activeGoogleService = null;
+  persistPrefs();
+  state.sync.status = "syncing"; state.sync.error = null; state.ui.conflict = null;
+  scheduleRender();
+  getActiveDataService().loadAll().then(result=>{
+    state.items = result.items; state.actions = result.actions;
+    resyncIdCounters(state.items, state.actions);
+    state.ui.detailId = null; state.ui.modal = null; state.ui.actionModal = null;
+    state.ui.search = ""; state.ui.filters = defaultFilters();
+    state.ui.actionsSearch = ""; state.ui.actionsFilters = defaultActionFilters();
+    state.sync.status = mode==="local" ? (STORAGE_AVAILABLE ? "synced" : "offline") : "offline";
+    state.sync.lastSyncedAt = mode==="local" ? new Date().toISOString() : null;
+    showToast(result.notice || `Switched to ${dataModeLabel(mode)}.`);
+    scheduleRender();
+  }).catch(err=>{
+    state.sync.status = "error"; state.sync.error = err.message || String(err);
+    scheduleRender();
+  });
+}
+function connectGoogleSheet(url){
+  state.ui.conflict = null;
+  state.sync.status = "syncing"; state.sync.error = null;
+  scheduleRender();
+  const svcToTry = _testGoogleOverride || googleSheetsDataServiceInstance;
+  svcToTry.connect(url).then(()=> svcToTry.loadAll()).then(result=>{
+    state.dataMode = "google";
+    _activeGoogleService = svcToTry;
+    persistPrefs();
+    state.items = result.items; state.actions = result.actions;
+    resyncIdCounters(state.items, state.actions);
+    state.ui.detailId = null; state.ui.modal = null; state.ui.actionModal = null;
+    state.sync.status = "connected"; state.sync.lastSyncedAt = new Date().toISOString(); state.sync.error = null;
+    showToast("Connected to Google Sheets.");
+    scheduleRender();
+  }).catch(err=>{
+    // Requirement: keep working in Local mode until Google Sheets access is available.
+    state.dataMode = "local";
+    _activeGoogleService = null;
+    persistPrefs();
+    state.sync.status = "error";
+    state.sync.error = err.message || String(err);
+    showToast("Couldn't connect to Google Sheets — staying in Local mode.");
+    scheduleRender();
+  });
+}
+function disconnectGoogleSheet(){
+  const svc = _activeGoogleService || googleSheetsDataServiceInstance;
+  Promise.resolve(svc.disconnect ? svc.disconnect() : null).then(()=>{
+    _activeGoogleService = null;
+    setDataMode("local");
+  });
+}
+function syncNow(){
+  if(state.dataMode!=="google"){
+    if(state.dataMode==="local") persistData();
+    state.sync.status = state.dataMode==="local" ? (STORAGE_AVAILABLE ? "synced" : "offline") : "offline";
+    state.sync.lastSyncedAt = new Date().toISOString();
+    showToast("Up to date.");
+    scheduleRender();
+    return;
+  }
+  const svc = getActiveDataService();
+  state.sync.status = "syncing"; state.sync.error = null;
+  scheduleRender();
+  svc.syncFromGoogleSheets().then(result=>{
+    if(result && result.conflict){
+      state.sync.status = "connected";
+      scheduleRender();
+      showSyncConflict(result.items, result.actions);
+      return;
+    }
+    state.items = result.items; state.actions = result.actions;
+    resyncIdCounters(state.items, state.actions);
+    state.sync.status = "connected"; state.sync.lastSyncedAt = new Date().toISOString(); state.sync.error = null;
+    showToast("Synced with Google Sheets.");
+    scheduleRender();
+  }).catch(err=>{
+    state.sync.status = "error"; state.sync.error = err.message || String(err);
+    scheduleRender();
+  });
+}
+/* ---- sync conflict UI state ---- */
+function showSyncConflict(remoteItems, remoteActions){
+  state.ui.conflict = {
+    message: "Google Sheet has changed since the last sync.",
+    remoteItems, remoteActions,
+    localItems: deepClone(state.items), localActions: deepClone(state.actions),
+    diffSummary: null,
+  };
+  scheduleRender();
+}
+function closeConflictModal(){ state.ui.conflict = null; scheduleRender(); }
+function diffSnapshots(localItems, remoteItems){
+  const localIds = new Set(localItems.map(i=>i.id));
+  const remoteIds = new Set(remoteItems.map(i=>i.id));
+  const added = remoteItems.filter(i=>!localIds.has(i.id)).length;
+  const removed = localItems.filter(i=>!remoteIds.has(i.id)).length;
+  let changed = 0;
+  remoteItems.forEach(r=>{
+    const l = localItems.find(i=>i.id===r.id);
+    if(l && JSON.stringify(l)!==JSON.stringify(r)) changed++;
+  });
+  return { added, removed, changed };
+}
+function resolveConflict(choice){
+  const c = state.ui.conflict; if(!c) return;
+  if(choice==="review"){ c.diffSummary = diffSnapshots(c.localItems, c.remoteItems); scheduleRender(); return; }
+  if(choice==="reload"){
+    state.items = c.remoteItems; state.actions = c.remoteActions;
+    resyncIdCounters(state.items, state.actions);
+    state.sync.status = "connected"; state.sync.lastSyncedAt = new Date().toISOString(); state.sync.error = null;
+    showToast("Reloaded from Google Sheet.");
+  }
+  if(choice==="keep-local"){
+    state.sync.status = "connected"; state.sync.error = null;
+    showToast("Kept your local changes. Sync again to try pushing them.");
+  }
+  state.ui.conflict = null;
+  scheduleRender();
+}
+
+/* ---- test hook: lets Playwright exercise the full data-service layer
+   (mapping functions + a real fake remote sheet) without real credentials,
+   and optionally drive the live Google-mode UI end-to-end. ---- */
+if(typeof window!=="undefined"){
+  window.__RAID_TEST__ = {
+    SHEET_COLUMNS,
+    mapRowToRaidItem, mapRaidItemToRow, mapRowToAction, mapActionToRow, mapRowToProject, mapRowToWorkstream,
+    LocalDataService, DemoDataService, GoogleSheetsDataService, MockGoogleSheetsDataService,
+    installMockGoogleSheets(items, actions){
+      _testGoogleOverride = new MockGoogleSheetsDataService(items || state.items, actions || state.actions);
+      return _testGoogleOverride;
+    },
+    uninstallMockGoogleSheets(){ _testGoogleOverride = null; },
+    getActiveDataService,
+  };
+}
+
+/* ---------- app state ---------- */
+const ORIGINAL_DEMO_ITEMS = buildDemoData();
+const ORIGINAL_DEMO_ACTIONS = buildDemoActions(ORIGINAL_DEMO_ITEMS);
+const boot = initialPrefs.dataMode==="demo"
+  ? { items: deepClone(ORIGINAL_DEMO_ITEMS), actions: deepClone(ORIGINAL_DEMO_ACTIONS),
+      notice: "Showing sample demo data. Changes made in Demo mode are not saved.", firstRun:true, canPersist:false }
+  : computeBoot();
+const state = {
+  items: boot.items,
+  actions: boot.actions,
+  dataMode: initialPrefs.dataMode,
+  sync: {
+    status: initialPrefs.dataMode==="demo" ? "offline" : (STORAGE_AVAILABLE ? "synced" : "offline"),
+    lastSyncedAt: null,
+    error: null,
+  },
+  ui: {
+    nav: "dashboard",
+    search: "",
+    filters: defaultFilters(),
+    sort: { field:"dueDate", dir:"asc" },
+    modal: null,      // { mode:"add"|"edit", type, item }
+    formData: null,
+    formErrors: {},
+    formDirty: false, // true once the open Add/Edit RAID form has any unsaved change
+    detailId: null,
+    confirm: null,    // { title, body, onConfirm }
+    sidebarOpen: false,
+    toast: null,
+
+    actionsSearch: "",
+    actionsFilters: defaultActionFilters(),
+    actionsSort: { field:"dueDate", dir:"asc" },
+    actionModal: null,     // { mode:"add"|"edit", id }
+    actionFormData: null,
+    actionFormErrors: {},
+    actionFormDirty: false, // true once the open Add/Edit Action form has any unsaved change
+
+    theme: initialPrefs.theme,       // "system" | "light" | "dark" — persisted user preference
+    lastSavedAt: null,               // ISO timestamp of the last successful local save, for Settings
+    importPreview: null,             // { items, actions, droppedItems, droppedActions, fileName } while an imported file awaits confirmation
+    importError: null,               // validation message for the last rejected import attempt
+    exportOutput: null,              // { kind, label, filename, content } for the currently displayed export
+    conflict: null,                  // { message, remoteItems, remoteActions, localItems, localActions, diffSummary } during a sync conflict
+  },
+};
+resyncIdCounters(state.items, state.actions);
+
+function findItem(id){ return state.items.find(it=>it.id===id); }
+function findAction(id){ return state.actions.find(a=>a.id===id); }
+
+/* ---------- persistence: save ---------- */
+function persistData(){
+  if(!STORAGE_AVAILABLE) return false;
+  try{
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      schema: 1, savedAt: new Date().toISOString(), items: state.items, actions: state.actions,
+    }));
+    state.ui.lastSavedAt = new Date().toISOString();
+    return true;
+  }catch(e){
+    console.warn("RAID Log Tracker: could not save to local storage.", e);
+    showToast("Couldn't save your changes locally — your browser storage may be full.");
+    return false;
+  }
+}
+function persistPrefs(){
+  if(!STORAGE_AVAILABLE) return false;
+  try{ window.localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: state.ui.theme })); return true; }
+  catch(e){ return false; }
+}
+
+/* ---------- toast ---------- */
+let toastTimer = null;
+function showToast(msg){
+  state.ui.toast = msg;
+  scheduleRender();
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>{ state.ui.toast = null; scheduleRender(); }, 2600);
+}
+
+/* ---------- utils ---------- */
+function esc(s){
+  return String(s==null?"":s).replace(/[&<>"']/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+}
+function uniqueSorted(arr){ return Array.from(new Set(arr.filter(Boolean))).sort((a,b)=>a.localeCompare(b)); }
+function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
+
+const NAV_TYPE_MAP = { risks:"Risk", assumptions:"Assumption", issues:"Issue", dependencies:"Dependency" };
+
+/* ---------- selectors ---------- */
+function baseItemsForNav(){
+  const t = NAV_TYPE_MAP[state.ui.nav];
+  return t ? state.items.filter(it=>it.type===t) : state.items.slice();
+}
+
+function getFilteredSortedItems(){
+  const { search, filters, sort } = state.ui;
+  let items = baseItemsForNav();
+  const q = search.trim().toLowerCase();
+  if(q){
+    items = items.filter(it=>{
+      return [it.id, it.title, it.description, it.owner, it.project, it.workstream, it.action, it.type, it.status, it.priority, it.riskLevel]
+        .some(f => (f||"").toLowerCase().includes(q));
+    });
+  }
+  if(filters.type) items = items.filter(it=>it.type===filters.type);
+  if(filters.status) items = items.filter(it=>it.status===filters.status);
+  if(filters.priority) items = items.filter(it=>it.priority===filters.priority);
+  if(filters.owner) items = items.filter(it=>it.owner===filters.owner);
+  if(filters.project) items = items.filter(it=>it.project===filters.project);
+  if(filters.workstream) items = items.filter(it=>it.workstream===filters.workstream);
+  if(filters.riskLevel) items = items.filter(it=>it.riskLevel===filters.riskLevel);
+  if(filters.probability) items = items.filter(it=>it.probability===Number(filters.probability));
+  if(filters.impact) items = items.filter(it=>it.impact===Number(filters.impact));
+  if(filters.overdue) items = items.filter(it=>dueTiming(it.dueDate, it.status)==="overdue");
+  if(filters.dueRange) items = items.filter(it=>inDueRange(it.dueDate, isOpenStatus(it.status), filters.dueRange));
+
+  const dir = sort.dir==="asc" ? 1 : -1;
+  items = items.slice().sort((a,b)=>{
+    let av = a[sort.field], bv = b[sort.field];
+    if(sort.field==="dueDate" || sort.field==="dateRaised" || sort.field==="reviewDate"){
+      av = av || "9999-99-99"; bv = bv || "9999-99-99";
+    }
+    if(sort.field==="riskScore"){ av = av==null?-1:av; bv = bv==null?-1:bv; }
+    if(typeof av === "string") av = av.toLowerCase();
+    if(typeof bv === "string") bv = bv.toLowerCase();
+    if(av < bv) return -1*dir;
+    if(av > bv) return 1*dir;
+    return a.id.localeCompare(b.id);
+  });
+  return items;
+}
+
+function activeFilterCount(){
+  const f = state.ui.filters;
+  return Object.values(f).filter(v=>v && v!=="").length;
+}
+
+/* ---------- shared "active filters" chip row (RAID Register + Actions) ----------
+   Renders one removable chip per active filter/search term, plus a single
+   "Clear all" action — the professional-filtering pattern of always showing
+   the user exactly what's narrowing their results, with a one-click way out
+   of any single constraint or all of them at once. */
+function activeFilterChips(){
+  const f = state.ui.filters;
+  const chips = [];
+  if(state.ui.search.trim()) chips.push({ key:"search", label:`Search: "${state.ui.search.trim()}"` });
+  if(f.type) chips.push({ key:"type", label:`Type: ${f.type}` });
+  if(f.status) chips.push({ key:"status", label:`Status: ${f.status}` });
+  if(f.priority) chips.push({ key:"priority", label:`Priority: ${f.priority}` });
+  if(f.owner) chips.push({ key:"owner", label:`Owner: ${f.owner}` });
+  if(f.project) chips.push({ key:"project", label:`Project: ${f.project}` });
+  if(f.workstream) chips.push({ key:"workstream", label:`Workstream: ${f.workstream}` });
+  if(f.riskLevel) chips.push({ key:"riskLevel", label:`Risk level: ${f.riskLevel}` });
+  if(f.dueRange) chips.push({ key:"dueRange", label:DUE_RANGE_LABEL[f.dueRange] || "Due date" });
+  if(f.overdue) chips.push({ key:"overdue", label:"Overdue" });
+  if(f.probability || f.impact) chips.push({ key:"matrix", label:`Matrix: P${f.probability||"any"} × I${f.impact||"any"}` });
+  return chips;
+}
+function renderActiveFilters(chips, removeAction, clearAction){
+  if(!chips.length) return "";
+  return `
+  <div class="active-filters">
+    <span class="active-filters-label">Filtered by</span>
+    ${chips.map(c=>`<span class="filter-chip">${esc(c.label)}<button type="button" data-action="${removeAction}" data-key="${c.key}" aria-label="Remove filter: ${esc(c.label)}">✕</button></span>`).join("")}
+    <button class="btn btn-ghost btn-sm" data-action="${clearAction}">Clear all</button>
+  </div>`;
+}
+
+/* ---------- dashboard computations (single source of truth: state.items) ---------- */
+function computeDashboardMetrics(){
+  const items = state.items;
+  const openRisks = items.filter(it=>it.type==="Risk" && isOpenStatus(it.status));
+  const criticalRisks = openRisks.filter(it=>it.riskLevel==="Critical");
+  const openIssues = items.filter(it=>it.type==="Issue" && isOpenStatus(it.status));
+  const openDeps = items.filter(it=>it.type==="Dependency" && isOpenStatus(it.status));
+  const openAsm = items.filter(it=>it.type==="Assumption" && isOpenStatus(it.status));
+
+  const overdueActions = state.actions.filter(isActionOverdue);
+  const dueSoonItems = items.filter(it=>isOpenStatus(it.status) && dueTiming(it.dueDate, it.status)==="soon");
+
+  return {
+    total: items.length,
+    openRisks: openRisks.length,
+    criticalRisks: criticalRisks.length,
+    openIssues: openIssues.length,
+    openDeps: openDeps.length,
+    openAsm: openAsm.length,
+    overdueActions: overdueActions.length,
+    dueSoon: dueSoonItems.length,
+  };
+}
+
+/* ---------- Actions engine ---------- */
+function computeActionMetrics(){
+  const actions = state.actions;
+  const open = actions.filter(a=>a.status!=="Complete");
+  const overdue = actions.filter(isActionOverdue);
+  const dueSoon = actions.filter(a=>actionDueTiming(a)==="soon");
+  const completed = actions.filter(a=>a.status==="Complete");
+  const completionRate = actions.length ? Math.round((completed.length/actions.length)*100) : 0;
+  return {
+    total: actions.length,
+    open: open.length,
+    overdue: overdue.length,
+    dueSoon: dueSoon.length,
+    completed: completed.length,
+    completionRate,
+  };
+}
+function getFilteredSortedActions(){
+  const { actionsSearch, actionsFilters, actionsSort } = state.ui;
+  let actions = state.actions.slice();
+  const q = (actionsSearch||"").trim().toLowerCase();
+  if(q){
+    actions = actions.filter(a=>{
+      const related = findItem(a.relatedItem);
+      return [a.id, a.description, a.owner, a.relatedItem, related?related.title:"", a.status, a.priority]
+        .some(f=>(f||"").toLowerCase().includes(q));
+    });
+  }
+  if(actionsFilters.status) actions = actions.filter(a=>a.status===actionsFilters.status);
+  if(actionsFilters.priority) actions = actions.filter(a=>a.priority===actionsFilters.priority);
+  if(actionsFilters.owner) actions = actions.filter(a=>a.owner===actionsFilters.owner);
+  if(actionsFilters.relatedType) actions = actions.filter(a=>{ const rel = findItem(a.relatedItem); return rel && rel.type===actionsFilters.relatedType; });
+  if(actionsFilters.overdue) actions = actions.filter(a=>isActionOverdue(a));
+  if(actionsFilters.dueRange) actions = actions.filter(a=>inDueRange(a.dueDate, a.status!=="Complete", actionsFilters.dueRange));
+
+  const dir = actionsSort.dir==="asc" ? 1 : -1;
+  actions.sort((a,b)=>{
+    let av = a[actionsSort.field], bv = b[actionsSort.field];
+    if(actionsSort.field==="dueDate"){ av = av || "9999-99-99"; bv = bv || "9999-99-99"; }
+    if(actionsSort.field==="completionPct"){ av = Number(av)||0; bv = Number(bv)||0; }
+    if(typeof av === "string") av = av.toLowerCase();
+    if(typeof bv === "string") bv = bv.toLowerCase();
+    if(av<bv) return -1*dir;
+    if(av>bv) return 1*dir;
+    return a.id.localeCompare(b.id);
+  });
+  return actions;
+}
+function activeActionFilterCount(){
+  return Object.values(state.ui.actionsFilters).filter(v=>v && v!=="").length;
+}
+function activeActionFilterChips(){
+  const f = state.ui.actionsFilters;
+  const chips = [];
+  if(state.ui.actionsSearch.trim()) chips.push({ key:"search", label:`Search: "${state.ui.actionsSearch.trim()}"` });
+  if(f.status) chips.push({ key:"status", label:`Status: ${f.status}` });
+  if(f.priority) chips.push({ key:"priority", label:`Priority: ${f.priority}` });
+  if(f.owner) chips.push({ key:"owner", label:`Owner: ${f.owner}` });
+  if(f.relatedType) chips.push({ key:"relatedType", label:`Related type: ${f.relatedType}` });
+  if(f.dueRange) chips.push({ key:"dueRange", label:DUE_RANGE_LABEL[f.dueRange] || "Due date" });
+  if(f.overdue) chips.push({ key:"overdue", label:"Overdue" });
+  return chips;
+}
+
+function computeTypeDistribution(){
+  return TYPES.map(t=>({ label: TYPE_META[t].plural, type:t, color: TYPE_META[t].color, value: state.items.filter(it=>it.type===t).length }));
+}
+function computeSeverityDistribution(){
+  const risks = state.items.filter(it=>it.type==="Risk");
+  return ["Critical","High","Medium","Low"].map(lvl=>({ label:lvl, color:SEV_COLOR[lvl], value: risks.filter(r=>r.riskLevel===lvl).length }));
+}
+function computeStatusDistribution(){
+  const counts = {};
+  state.items.forEach(it=>{ counts[it.status] = (counts[it.status]||0)+1; });
+  return Object.keys(counts).sort((a,b)=>counts[b]-counts[a]).map(s=>({ label:s, value:counts[s] }));
+}
+function computeOwnerDistribution(){
+  const counts = {};
+  state.items.forEach(it=>{ counts[it.owner] = (counts[it.owner]||0)+1; });
+  return Object.keys(counts).sort((a,b)=>counts[b]-counts[a]).slice(0,7).map(o=>({ label:o, value:counts[o] }));
+}
+function computeUpcoming(){
+  return state.items
+    .filter(it=>isOpenStatus(it.status) && it.dueDate)
+    .map(it=>({ it, n: daysBetween(todayISO(), it.dueDate) }))
+    .sort((a,b)=>a.n-b.n)
+    .slice(0,8);
+}
+
+/* 5x5 probability x impact matrix - counts every risk into its cell.
+   Row = probability (5 at top, 1 at bottom), column = impact (1..5). */
+function computeRiskMatrix(onlyOpen){
+  const risks = state.items.filter(it=>it.type==="Risk" && (!onlyOpen || isOpenStatus(it.status)));
+  const grid = [];
+  for(let p=5; p>=1; p--){
+    const row = [];
+    for(let i=1; i<=5; i++){
+      const score = riskScore(p,i);
+      const level = riskLevel(score);
+      const items = risks.filter(r=>r.probability===p && r.impact===i);
+      row.push({ probability:p, impact:i, score, level, count: items.length, items });
+    }
+    grid.push(row);
+  }
+  return grid;
+}
+function computeTopRisks(limit){
+  return state.items
+    .filter(it=>it.type==="Risk" && isOpenStatus(it.status))
+    .slice()
+    .sort((a,b)=> b.riskScore - a.riskScore || a.id.localeCompare(b.id))
+    .slice(0, limit||5);
+}
+
+/* ---------- small chart builders ---------- */
+function donutSVG(segments, size, strokeWidth){
+  size = size||130; strokeWidth = strokeWidth||20;
+  const total = segments.reduce((s,x)=>s+x.value,0) || 1;
+  const r = (size - strokeWidth)/2, cx=size/2, cy=size/2, circ = 2*Math.PI*r;
+  let offset = 0, arcs = "";
+  segments.forEach(seg=>{
+    if(seg.value<=0) return;
+    const dash = (seg.value/total)*circ;
+    arcs += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${seg.color}" stroke-width="${strokeWidth}" stroke-dasharray="${dash.toFixed(2)} ${(circ-dash).toFixed(2)}" stroke-dashoffset="${(-offset).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})" stroke-linecap="butt"></circle>`;
+    offset += dash;
+  });
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" role="img" aria-label="RAID distribution donut chart">
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--border)" stroke-width="${strokeWidth}"></circle>
+    ${arcs}
+    <text x="${cx}" y="${cy-2}" text-anchor="middle" font-family="Libre Franklin, sans-serif" font-weight="700" font-size="24" fill="var(--text-primary)">${total}</text>
+    <text x="${cx}" y="${cy+16}" text-anchor="middle" font-size="10.5" fill="var(--text-muted)">RAID items</text>
+  </svg>`;
+}
+function barRows(segments, maxTrackWidth){
+  if(!segments.length) return `<p style="font-size:12.5px; color:var(--text-muted); padding:6px 0;">No data yet.</p>`;
+  const max = Math.max(1, ...segments.map(s=>s.value));
+  return segments.map(s=>`
+    <div class="bar-row">
+      <span class="bar-label" title="${esc(s.label)}">${esc(s.label)}</span>
+      <span class="bar-track"><span class="bar-fill" style="width:${(s.value/max*100).toFixed(1)}%; background:${s.color||'var(--accent)'};"></span></span>
+      <span class="bar-val tabular">${s.value}</span>
+    </div>`).join("");
+}
+function legendRow(segments){
+  return `<div class="legend">${segments.map(s=>`<span class="legend-item"><span class="legend-swatch" style="background:${s.color}"></span>${esc(s.label)} · ${s.value}</span>`).join("")}</div>`;
+}
+
+/* Probability x Impact heatmap - the classic risk-matrix visual. Each cell is
+   colored by the SAME riskLevel() band function used everywhere else, and
+   shows its score plus how many current risks fall in it. Clicking a
+   populated cell filters the Risks register to exactly that combination. */
+function riskMatrixHTML(grid, opts){
+  opts = opts || {};
+  const clickable = opts.clickable !== false;
+  const impactHeads = [1,2,3,4,5].map(i=>`<th>${i}<br><span class="rm-axis-label">${SCALE_LABELS[i]}</span></th>`).join("");
+  const rows = grid.map(row=>{
+    const p = row[0].probability;
+    return `<tr><th class="rm-row-head">${p}<br><span class="rm-axis-label">${SCALE_LABELS[p]}</span></th>${row.map(cell=>{
+      const bg = `color-mix(in srgb, ${SEV_COLOR[cell.level]} ${cell.count>0 ? 30:12}%, var(--surface))`;
+      const action = clickable && cell.count>0 ? `data-action="matrix-cell" data-probability="${cell.probability}" data-impact="${cell.impact}"` : "";
+      return `<td class="rm-cell ${cell.count>0?'has-items':''}" style="background:${bg};" ${action} title="Probability ${cell.probability} × Impact ${cell.impact} = ${cell.score} (${cell.level})">
+        <div class="rm-score">${cell.score}</div>
+        ${cell.count>0 ? `<div class="rm-count">${cell.count} risk${cell.count>1?'s':''}</div>` : ""}
+      </td>`;
+    }).join("")}</tr>`;
+  }).join("");
+
+  return `
+  <div class="risk-matrix-wrap">
+    <table class="risk-matrix">
+      <thead><tr><th class="rm-corner"><span>Probability ↑</span><span class="rm-corner-sub">Impact →</span></th>${impactHeads}</tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+/* ---------- pill helpers ---------- */
+function typePill(type){
+  return `<span class="pill ${TYPE_META[type].cls}"><span class="pill-dot" style="background:${TYPE_META[type].color}"></span>${type}</span>`;
+}
+function sevPill(level){
+  if(!level) return `<span class="mono" style="color:var(--text-muted)">—</span>`;
+  return `<span class="pill ${SEV_CLASS[level]}">${level}</span>`;
+}
+function statusChip(status){
+  const cls = STATUS_CLASS[status] || "st-open";
+  return `<span class="status-chip ${cls}"><span class="dot"></span>${esc(status)}</span>`;
+}
+
+/* ---------- NAV CONFIG ---------- */
+const NAV_ITEMS = [
+  { key:"dashboard", label:"Dashboard", icon:"◧" },
+  { key:"register", label:"RAID Register", icon:"☰" },
+  { key:"risks", label:"Risks", icon:"●", dotColor:"var(--type-risk)" },
+  { key:"assumptions", label:"Assumptions", icon:"●", dotColor:"var(--type-assumption)" },
+  { key:"issues", label:"Issues", icon:"●", dotColor:"var(--type-issue)" },
+  { key:"dependencies", label:"Dependencies", icon:"●", dotColor:"var(--type-dependency)" },
+  { key:"actions", label:"Actions", icon:"✓" },
+  { key:"reports", label:"Reports", icon:"▤" },
+  { key:"settings", label:"Settings", icon:"⚙" },
+];
+const NAV_TITLES = {
+  dashboard:["Dashboard","Program-wide RAID health at a glance"],
+  register:["RAID Register","Unified log of every risk, assumption, issue and dependency"],
+  risks:["Risks","Probability × impact scored threats to delivery"],
+  assumptions:["Assumptions","Conditions being planned around, pending validation"],
+  issues:["Issues","Problems already impacting the program"],
+  dependencies:["Dependencies","External items this program is waiting on"],
+  actions:["Actions","Follow-up tasks tied to RAID items"],
+  reports:["Reports","Print-friendly summaries for governance"],
+  settings:["Settings","Workspace configuration"],
+};
+
+/* ---------- RENDER: SHELL ---------- */
+function renderSidebar(){
+  const counts = {
+    dashboard:null, register: state.items.length,
+    risks: state.items.filter(i=>i.type==="Risk").length,
+    assumptions: state.items.filter(i=>i.type==="Assumption").length,
+    issues: state.items.filter(i=>i.type==="Issue").length,
+    dependencies: state.items.filter(i=>i.type==="Dependency").length,
+    actions: state.actions.length,
+    reports:null, settings:null,
+  };
+  const items = NAV_ITEMS.map(n=>{
+    const active = state.ui.nav===n.key;
+    const c = counts[n.key];
+    return `<button class="nav-item ${active?"active":""}" data-action="nav" data-nav="${n.key}">
+      ${n.dotColor ? `<span class="dot" style="background:${n.dotColor}"></span>` : `<span class="icon">${n.icon}</span>`}
+      <span>${n.label}</span>
+      ${c!=null ? `<span class="count tabular">${c}</span>` : ""}
+    </button>`;
+  }).join("");
+  return `
+  <div class="sidebar-scrim ${state.ui.sidebarOpen?"open":""}" data-action="toggle-sidebar"></div>
+  <nav class="sidebar ${state.ui.sidebarOpen?"open":""}" aria-label="Primary">
+    <div class="sidebar-brand">
+      <div class="brand-mark">R◆</div>
+      <div class="brand-text"><strong>RAID Log Tracker</strong><span>Enterprise PMO Edition</span></div>
+    </div>
+    <div class="nav-group-label">Workspace</div>
+    <ul class="nav">${items}</ul>
+    <div class="sidebar-foot">Team Retro — Red Flags<br>Sourced from the team's retro sheet</div>
+  </nav>`;
+}
+
+const SYNC_STATUS_META = {
+  connected: { cls:"sync-ok", label:"Connected" },
+  syncing:   { cls:"sync-busy", label:"Syncing…" },
+  synced:    { cls:"sync-ok", label:"Synced" },
+  offline:   { cls:"sync-off", label:"Offline" },
+  error:     { cls:"sync-err", label:"Sync error" },
+};
+function renderSyncBadge(){
+  const s = state.sync;
+  const meta = SYNC_STATUS_META[s.status] || SYNC_STATUS_META.offline;
+  const subtitle = s.status==="error" ? (s.error || "Couldn't sync") : `${dataModeLabel(state.dataMode)} · Last synced: ${s.lastSyncedAt ? fmtDateTime(s.lastSyncedAt) : "never"}`;
+  return `
+  <div class="sync-badge ${meta.cls}" data-action="open-data-source-settings" title="${esc(s.error||"")}">
+    <span class="dot"></span>
+    <span class="sync-text"><strong>${esc(meta.label)}</strong><span class="sync-sub">${esc(subtitle)}</span></span>
+    <button class="sync-now-btn" data-action="sync-now" title="Sync now" aria-label="Sync now">⟳</button>
+  </div>`;
+}
+function renderTopbar(){
+  const [title, subtitle] = NAV_TITLES[state.ui.nav];
+  const isActionsNav = state.ui.nav==="actions";
+  const isSearchableNav = isActionsNav || ["register","risks","assumptions","issues","dependencies"].includes(state.ui.nav);
+  return `
+  <header class="topbar">
+    <button class="icon-btn menu-toggle" data-action="toggle-sidebar" aria-label="Toggle navigation">☰</button>
+    <div>
+      <h1>${esc(title)}</h1>
+      <div class="subtitle">${esc(subtitle)}</div>
+    </div>
+    ${isSearchableNav ? `<div class="search-global">
+      <span aria-hidden="true">⌕</span>
+      <input id="global-search-input" type="text" placeholder="${isActionsNav ? "Search actions…" : "Search RAID items…"}" value="${esc(isActionsNav ? state.ui.actionsSearch : state.ui.search)}" data-field="global-search" autocomplete="off">
+    </div>` : ""}
+    <div class="topbar-actions">
+      ${renderSyncBadge()}
+      ${isActionsNav
+        ? `<button class="btn btn-primary" data-action="open-add-action">+<span class="btn-label"> Add Action</span></button>`
+        : `<button class="btn btn-primary" data-action="open-add">+<span class="btn-label"> Add RAID Item</span></button>`}
+    </div>
+  </header>`;
+}
+
+/* ---------- RENDER: DASHBOARD ---------- */
+function kpiTile(label, value, opts){
+  opts = opts||{};
+  return `<div class="kpi">
+    <div class="label">${esc(label)}</div>
+    <div class="value ${opts.tone||""} tabular">${value}</div>
+    ${opts.sub? `<div class="sub">${opts.sub}</div>`:""}
+  </div>`;
+}
+
+function renderDashboard(){
+  const m = computeDashboardMetrics();
+  const typeDist = computeTypeDistribution();
+  const sevDist = computeSeverityDistribution();
+  const statusDist = computeStatusDistribution();
+  const ownerDist = computeOwnerDistribution();
+  const upcoming = computeUpcoming();
+  const matrix = computeRiskMatrix(true);
+  const topRisks = computeTopRisks(5);
+  const am = computeActionMetrics();
+  const actionAlerts = state.actions
+    .filter(a=>a.status!=="Complete" && a.dueDate)
+    .map(a=>({ a, n: daysBetween(todayISO(), a.dueDate) }))
+    .sort((x,y)=>x.n-y.n)
+    .slice(0,6);
+
+  const kpis = [
+    kpiTile("Total RAID items", m.total),
+    kpiTile("Open risks", m.openRisks),
+    kpiTile("Critical risks", m.criticalRisks, { tone: m.criticalRisks>0?"crit":"" }),
+    kpiTile("Open issues", m.openIssues),
+    kpiTile("Open dependencies", m.openDeps),
+    kpiTile("Open assumptions", m.openAsm),
+    kpiTile("Overdue actions", m.overdueActions, { tone: m.overdueActions>0?"crit":"" }),
+    kpiTile("RAID items due in 7 days", m.dueSoon, { tone: m.dueSoon>0?"warn":"" }),
+  ].join("");
+
+  const upcomingRows = upcoming.length ? upcoming.map(({it,n})=>{
+    const timing = dueTiming(it.dueDate, it.status);
+    const cls = timing==="overdue" ? "overdue" : timing==="soon" ? "soon" : "";
+    return `<div class="due-row" data-action="view-item" data-id="${it.id}" style="cursor:pointer">
+      <span class="id mono">${it.id}</span>
+      <span class="title">${esc(it.title)}</span>
+      <span class="when tabular ${cls}">${relativeDueLabel(it.dueDate, it.status)}</span>
+    </div>`;
+  }).join("") : `<div class="empty-state" style="padding:24px 8px;"><p>Nothing on the near-term horizon.</p></div>`;
+
+  const topRisksRows = topRisks.length ? topRisks.map(r=>`
+    <div class="due-row" data-action="view-item" data-id="${r.id}" style="cursor:pointer">
+      <span class="id mono">${r.id}</span>
+      <span class="title">${esc(r.title)}</span>
+      <span class="score-badge ${SEV_CLASS[r.riskLevel]}" style="margin-right:8px;">${r.riskScore}</span>
+      ${sevPill(r.riskLevel)}
+    </div>`).join("") : `<div class="empty-state" style="padding:24px 8px;"><p>No open risks on the register.</p></div>`;
+
+  document.getElementById("view-root").innerHTML = `
+    <div class="kpi-row">${kpis}</div>
+    <div class="grid-2" style="margin-bottom:16px;">
+      <div class="panel chart-card">
+        <h3>RAID distribution</h3>
+        <span class="chart-hint">Share of the register by item type</span>
+        <div style="display:flex; align-items:center; gap:22px; flex-wrap:wrap;">
+          ${donutSVG(typeDist)}
+          <div style="flex:1; min-width:160px;">${legendRow(typeDist)}</div>
+        </div>
+      </div>
+      <div class="panel chart-card">
+        <h3>Risk severity distribution</h3>
+        <span class="chart-hint">Risk register only, by probability × impact level</span>
+        ${barRows(sevDist)}
+      </div>
+    </div>
+    <div class="grid-2" style="margin-bottom:16px; align-items:stretch;">
+      <div class="panel chart-card">
+        <h3>Risk matrix</h3>
+        <span class="chart-hint">Open risks by probability × impact — score and level, live from the risk-scoring engine</span>
+        ${riskMatrixHTML(matrix)}
+        ${riskBandLegend()}
+      </div>
+      <div class="panel chart-card">
+        <h3>Top risks by score</h3>
+        <span class="chart-hint">Highest probability × impact, open risks only</span>
+        <div class="due-list">${topRisksRows}</div>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="panel chart-card">
+        <h3>Status distribution</h3>
+        <span class="chart-hint">All RAID items, across every status</span>
+        ${barRows(statusDist.map(s=>({...s, color:"var(--accent)"})))}
+      </div>
+      <div class="panel chart-card">
+        <h3>Items by owner</h3>
+        <span class="chart-hint">Top owners by number of assigned RAID items</span>
+        ${barRows(ownerDist.map(o=>({...o, color:"var(--action)"})))}
+      </div>
+    </div>
+    <div class="panel chart-card" style="margin-top:16px;">
+      <div class="section-head" style="margin-bottom:2px;">
+        <h3 style="font-size:15px;">Actions</h3>
+        <span class="hint"><button class="btn btn-ghost btn-sm" data-action="nav" data-nav="actions" style="padding:2px 8px;">Open Actions page →</button></span>
+      </div>
+      <span class="chart-hint">Follow-up tasks tied to RAID items — a separate, first-class register</span>
+      <div class="kpi-row" style="margin-top:10px; margin-bottom:16px;">
+        ${kpiTile("Total open actions", am.open)}
+        ${kpiTile("Overdue actions", am.overdue, { tone: am.overdue>0?"crit":"" })}
+        ${kpiTile("Actions due in 7 days", am.dueSoon, { tone: am.dueSoon>0?"warn":"" })}
+        ${kpiTile("Completion rate", am.completionRate+"%", { sub: `${am.completed} of ${am.total} complete` })}
+      </div>
+      <div class="due-list">
+        ${actionAlerts.length ? actionAlerts.map(({a,n})=>{
+          const timing = actionDueTiming(a);
+          const cls = timing==="overdue" ? "overdue" : timing==="soon" ? "soon" : "";
+          const related = findItem(a.relatedItem);
+          return `<div class="due-row" data-action="edit-action" data-id="${a.id}" style="cursor:pointer">
+            <span class="id mono">${a.id}</span>
+            <span class="title">${esc(a.description)}${related?` <span style="color:var(--text-muted);">— ${esc(related.id)}</span>`:""}</span>
+            <span class="when tabular ${cls}">${n<0?`${Math.abs(n)}d overdue`:n===0?"Due today":`Due in ${n}d`}</span>
+          </div>`;
+        }).join("") : `<div class="empty-state" style="padding:20px 8px;"><p>No open actions due soon.</p></div>`}
+      </div>
+    </div>
+    <div class="panel chart-card" style="margin-top:16px;">
+      <h3>Upcoming &amp; overdue due dates</h3>
+      <span class="chart-hint">Open items only, soonest first</span>
+      <div class="due-list">${upcomingRows}</div>
+    </div>
+  `;
+}
+
+/* ---------- RENDER: REGISTER ---------- */
+const SORT_COLUMNS = [
+  { field:"id", label:"ID" }, { field:"type", label:"Type" }, { field:"title", label:"Title" },
+  { field:"owner", label:"Owner" }, { field:"status", label:"Status" }, { field:"priority", label:"Priority" },
+  { field:"riskScore", label:"Score" }, { field:"dueDate", label:"Due" },
+];
+function sortIndicator(field){
+  if(state.ui.sort.field!==field) return "";
+  return state.ui.sort.dir==="asc" ? " ↑" : " ↓";
+}
+
+function renderToolbar(){
+  const f = state.ui.filters;
+  const owners = uniqueSorted(state.items.map(i=>i.owner));
+  const projects = uniqueSorted(state.items.map(i=>i.project));
+  const workstreams = f.project ? (PROJECTS[f.project]||[]).slice() : uniqueSorted(state.items.map(i=>i.workstream));
+  const statusesForNav = NAV_TYPE_MAP[state.ui.nav] ? STATUS_BY_TYPE[NAV_TYPE_MAP[state.ui.nav]] : uniqueSorted(state.items.map(i=>i.status));
+  const showRiskLevel = !NAV_TYPE_MAP[state.ui.nav] || state.ui.nav==="risks";
+
+  return `
+  <div class="toolbar">
+    <div class="search-box">
+      <span aria-hidden="true">⌕</span>
+      <input id="register-search-input" type="text" placeholder="Search title, description, owner, project…" value="${esc(state.ui.search)}" data-field="register-search" autocomplete="off">
+    </div>
+    ${!NAV_TYPE_MAP[state.ui.nav] ? `<select class="filter-select" data-filter="type" aria-label="Filter by type">
+      <option value="">All types</option>
+      ${TYPES.map(t=>`<option value="${t}" ${f.type===t?"selected":""}>${TYPE_META[t].plural}</option>`).join("")}
+    </select>` : ""}
+    <select class="filter-select" data-filter="status" aria-label="Filter by status">
+      <option value="">All statuses</option>
+      ${statusesForNav.map(s=>`<option value="${esc(s)}" ${f.status===s?"selected":""}>${esc(s)}</option>`).join("")}
+    </select>
+    <select class="filter-select" data-filter="priority" aria-label="Filter by priority">
+      <option value="">All priorities</option>
+      ${PRIORITIES.map(p=>`<option value="${p}" ${f.priority===p?"selected":""}>${p}</option>`).join("")}
+    </select>
+    <select class="filter-select" data-filter="owner" aria-label="Filter by owner">
+      <option value="">All owners</option>
+      ${owners.map(o=>`<option value="${esc(o)}" ${f.owner===o?"selected":""}>${esc(o)}</option>`).join("")}
+    </select>
+    <select class="filter-select" data-filter="project" aria-label="Filter by project">
+      <option value="">All projects</option>
+      ${projects.map(p=>`<option value="${esc(p)}" ${f.project===p?"selected":""}>${esc(p)}</option>`).join("")}
+    </select>
+    <select class="filter-select" data-filter="workstream" aria-label="Filter by workstream">
+      <option value="">All workstreams</option>
+      ${workstreams.map(w=>`<option value="${esc(w)}" ${f.workstream===w?"selected":""}>${esc(w)}</option>`).join("")}
+    </select>
+    ${showRiskLevel ? `<select class="filter-select" data-filter="riskLevel" aria-label="Filter by risk level">
+      <option value="">All risk levels</option>
+      ${["Critical","High","Medium","Low"].map(l=>`<option value="${l}" ${f.riskLevel===l?"selected":""}>${l}</option>`).join("")}
+    </select>` : ""}
+    <select class="filter-select" data-filter="dueRange" aria-label="Filter by due date">
+      ${DUE_RANGE_OPTIONS.map(o=>`<option value="${o.value}" ${f.dueRange===o.value?"selected":""}>${o.label}</option>`).join("")}
+    </select>
+    <button class="toggle-chip ${f.overdue?"active":""}" data-action="toggle-chip" data-chip="overdue">Overdue</button>
+  </div>`;
+}
+
+function registerRowHTML(it){
+  const timing = dueTiming(it.dueDate, it.status);
+  const dueCls = timing==="overdue"?"overdue":timing==="soon"?"soon":"";
+  return `
+  <tr data-action="view-item" data-id="${it.id}" tabindex="0">
+    <td class="id-cell">${it.id}</td>
+    <td>${typePill(it.type)}</td>
+    <td class="title-cell">
+      <span class="t">${esc(it.title)}</span>
+      <span class="d">${esc(it.project)} · ${esc(it.workstream)}</span>
+    </td>
+    <td>${esc(it.owner)}</td>
+    <td>${statusChip(it.status)}</td>
+    <td>${sevPill(it.type==="Risk" ? it.riskLevel : it.priority)}</td>
+    <td>${it.type==="Risk" ? `<span class="score-badge ${SEV_CLASS[it.riskLevel]}">${it.riskScore}</span>` : `<span class="mono" style="color:var(--text-muted)">—</span>`}</td>
+    <td class="due-cell tabular ${dueCls}">${it.dueDate ? relativeDueLabel(it.dueDate, it.status) : "—"}</td>
+    <td>
+      <div class="row-actions">
+        <button class="icon-btn btn-sm" data-action="edit-item" data-id="${it.id}" title="Edit" aria-label="Edit ${it.id}">✎</button>
+        <button class="icon-btn btn-sm" data-action="delete-item" data-id="${it.id}" title="Delete" aria-label="Delete ${it.id}">🗑</button>
+      </div>
+    </td>
+  </tr>`;
+}
+
+function renderRegister(){
+  const items = getFilteredSortedItems();
+  const total = baseItemsForNav().length;
+  const chips = activeFilterChips();
+  const cols = state.ui.nav==="risks" ? SORT_COLUMNS : SORT_COLUMNS.filter(c=>c.field!=="riskScore" || state.ui.nav==="register");
+  const tableHead = `<tr>${SORT_COLUMNS.map(c=>`
+      <th><button data-action="sort" data-field="${c.field}">${c.label}${sortIndicator(c.field)}</button></th>`).join("")}<th></th></tr>`;
+
+  const body = items.length ? items.map(registerRowHTML).join("") : `
+    <tr><td colspan="9"><div class="empty-state">
+      <div class="icon">🗂</div>
+      <h3>No items match your ${chips.length ? "filters" : "search"}</h3>
+      <p>${chips.length ? "Try adjusting or clearing a filter below, or search for something else." : "Add a new RAID item to get started."}</p>
+      ${chips.length ? `<button class="btn btn-sm" data-action="reset-filters" style="margin-top:12px;">Clear all filters</button>` : ""}
+    </div></td></tr>`;
+
+  document.getElementById("view-root").innerHTML = `
+    ${renderToolbar()}
+    ${renderActiveFilters(chips, "remove-filter", "reset-filters")}
+    <div style="display:flex; margin-bottom:8px;"><span class="result-count">Showing <strong>${items.length}</strong> of ${total} ${NAV_TYPE_MAP[state.ui.nav] ? NAV_TYPE_MAP[state.ui.nav].toLowerCase()+"s" : "RAID items"}</span></div>
+    <div class="table-wrap">
+      <table class="register">
+        <thead>${tableHead}</thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>
+    <p class="mobile-scroll-hint">↔ Swipe the table sideways to see more columns</p>
+  `;
+}
+
+/* ---------- RENDER: PLACEHOLDER SECTIONS ---------- */
+function renderPlaceholder(tag, title, body){
+  document.getElementById("view-root").innerHTML = `
+    <div class="panel placeholder-card">
+      <span class="tag">${esc(tag)}</span>
+      <h2>${esc(title)}</h2>
+      <p>${body}</p>
+    </div>`;
+}
+
+/* ---------- RENDER: REPORTS (Risk Summary is built now; the rest of the
+   Reports suite - RAID summary, critical issues, overdue actions, upcoming
+   reviews, by-owner/project - is still Phase 11. Flagging that scope choice
+   rather than silently only half-answering "visible in Reports".) ---------- */
+function renderReports(){
+  const allRisks = state.items.filter(it=>it.type==="Risk").slice().sort((a,b)=>b.riskScore-a.riskScore || a.id.localeCompare(b.id));
+  const matrix = computeRiskMatrix(false);
+  // This table shares a half-width column with the risk matrix (see the
+  // grid-2 wrapper below), so it deliberately shows fewer columns than the
+  // main Register — Owner/Status/Probability/Impact are all one click away
+  // via the row's view-item action, and cramming all 8 register columns into
+  // ~500px would force a second, nested horizontal scrollbar.
+  const rows = allRisks.map(r=>`
+    <tr data-action="view-item" data-id="${r.id}">
+      <td class="id-cell">${r.id}</td>
+      <td class="title-cell"><span class="t">${esc(r.title)}</span><span class="d">${esc(r.owner)} · ${esc(r.project)}</span></td>
+      <td><span class="score-badge ${SEV_CLASS[r.riskLevel]}">${r.riskScore}</span></td>
+      <td>${sevPill(r.riskLevel)}</td>
+    </tr>`).join("");
+
+  document.getElementById("view-root").innerHTML = `
+    <div class="panel chart-card" style="margin-bottom:16px;">
+      <div class="section-head" style="margin-bottom:6px;">
+        <h2 style="font-size:15px;">Risk summary report</h2>
+        <span class="hint">All ${allRisks.length} risks, ranked by probability × impact</span>
+      </div>
+      <div class="grid-2" style="align-items:start; margin-top:10px;">
+        <div>
+          <h3 style="font-size:13px; margin-bottom:2px;">Risk matrix — every risk, any status</h3>
+          <span class="chart-hint">Same 1–5 × 1–5 scoring engine as the Dashboard, Register, and Detail view</span>
+          ${riskMatrixHTML(matrix)}
+          ${riskBandLegend()}
+        </div>
+        <div>
+          <h3 style="font-size:13px; margin-bottom:10px;">Risk register, ranked</h3>
+          <div class="table-wrap">
+            <table class="register report-risk-table">
+              <thead><tr><th>ID</th><th>Title</th><th>Score</th><th>Level</th></tr></thead>
+              <tbody>${rows || `<tr><td colspan="4"><div class="empty-state"><p>No risks logged yet.</p></div></td></tr>`}</tbody>
+            </table>
+          </div>
+          <p class="field-hint" style="margin-top:8px;">Click a row to open its full detail — owner, status, dates and history.</p>
+        </div>
+      </div>
+    </div>
+    <div class="panel placeholder-card">
+      <span class="tag">Coming soon</span>
+      <h2>More governance reports</h2>
+      <p>A RAID summary, a critical-issues view, an overdue-actions report, upcoming reviews, and items-by-owner/project breakdowns — each with a print-friendly export view — are on the roadmap. The full Risk Summary report above is ready to use today.</p>
+    </div>`;
+}
+
+/* ---------- RENDER: ACTIONS PAGE ---------- */
+const ACTION_SORT_COLUMNS = [
+  { field:"id", label:"ID" }, { field:"description", label:"Description" }, { field:"relatedItem", label:"Related item" },
+  { field:"owner", label:"Owner" }, { field:"priority", label:"Priority" }, { field:"status", label:"Status" },
+  { field:"completionPct", label:"Completion" }, { field:"dueDate", label:"Due" },
+];
+function actionSortIndicator(field){
+  if(state.ui.actionsSort.field!==field) return "";
+  return state.ui.actionsSort.dir==="asc" ? " ↑" : " ↓";
+}
+function actionRowHTML(a){
+  const related = findItem(a.relatedItem);
+  const timing = actionDueTiming(a);
+  const dueCls = timing==="overdue"?"overdue":timing==="soon"?"soon":"";
+  return `
+  <tr data-action="edit-action" data-id="${a.id}" tabindex="0">
+    <td class="id-cell">${a.id}</td>
+    <td class="title-cell"><span class="t">${esc(a.description)}</span></td>
+    <td>${related
+      ? `<button class="btn btn-ghost btn-sm" data-action="view-item" data-id="${related.id}" style="padding:3px 8px;" title="Open ${related.id}">${typePill(related.type)} <span class="mono" style="margin-left:5px; font-size:11px;">${related.id}</span></button>`
+      : a.relatedItem
+        ? `<span class="mono" style="color:var(--text-muted)" title="The RAID item ${esc(a.relatedItem)} this action was linked to has since been deleted.">${esc(a.relatedItem)} — item deleted</span>`
+        : `<span style="color:var(--text-muted)">—</span>`}</td>
+    <td>${esc(a.owner)}</td>
+    <td>${sevPill(a.priority)}</td>
+    <td>${statusChip(a.status)}</td>
+    <td style="min-width:120px;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <div class="bar-track" style="width:64px; height:7px;"><span class="bar-fill" style="width:${a.completionPct||0}%; background:${a.status==='Complete'?'var(--sev-low)':'var(--action)'};"></span></div>
+        <span class="tabular" style="font-size:11.5px; color:var(--text-secondary);">${a.completionPct||0}%</span>
+      </div>
+    </td>
+    <td class="due-cell tabular ${dueCls}">${a.dueDate ? (timing==='complete' ? fmtDateShort(a.dueDate) : relativeDueLabel(a.dueDate, a.status==='Complete'?'Closed':'Open')) : "—"}</td>
+    <td>
+      <div class="row-actions">
+        <button class="icon-btn btn-sm" data-action="edit-action" data-id="${a.id}" title="Edit" aria-label="Edit ${a.id}">✎</button>
+        <button class="icon-btn btn-sm" data-action="delete-action" data-id="${a.id}" title="Delete" aria-label="Delete ${a.id}">🗑</button>
+      </div>
+    </td>
+  </tr>`;
+}
+function renderActionsToolbar(){
+  const f = state.ui.actionsFilters;
+  const owners = uniqueSorted(state.actions.map(a=>a.owner));
+  return `
+  <div class="toolbar">
+    <div class="search-box">
+      <span aria-hidden="true">⌕</span>
+      <input id="actions-search-input" type="text" placeholder="Search description, owner, related item…" value="${esc(state.ui.actionsSearch)}" data-field="actions-search" autocomplete="off">
+    </div>
+    <select class="filter-select" data-action-filter="status" aria-label="Filter by status">
+      <option value="">All statuses</option>
+      ${ACTION_STATUSES_FULL.map(s=>`<option value="${esc(s)}" ${f.status===s?"selected":""}>${esc(s)}</option>`).join("")}
+    </select>
+    <select class="filter-select" data-action-filter="priority" aria-label="Filter by priority">
+      <option value="">All priorities</option>
+      ${PRIORITIES.map(p=>`<option value="${p}" ${f.priority===p?"selected":""}>${p}</option>`).join("")}
+    </select>
+    <select class="filter-select" data-action-filter="owner" aria-label="Filter by owner">
+      <option value="">All owners</option>
+      ${owners.map(o=>`<option value="${esc(o)}" ${f.owner===o?"selected":""}>${esc(o)}</option>`).join("")}
+    </select>
+    <select class="filter-select" data-action-filter="relatedType" aria-label="Filter by related item type">
+      <option value="">All related types</option>
+      ${TYPES.map(t=>`<option value="${t}" ${f.relatedType===t?"selected":""}>${TYPE_META[t].plural}</option>`).join("")}
+    </select>
+    <select class="filter-select" data-action-filter="dueRange" aria-label="Filter by due date">
+      ${DUE_RANGE_OPTIONS.map(o=>`<option value="${o.value}" ${f.dueRange===o.value?"selected":""}>${o.label}</option>`).join("")}
+    </select>
+    <button class="toggle-chip ${f.overdue?"active":""}" data-action="toggle-action-chip" data-chip="overdue">Overdue</button>
+  </div>`;
+}
+function renderActionsPage(){
+  const m = computeActionMetrics();
+  const actions = getFilteredSortedActions();
+  const chips = activeActionFilterChips();
+  const kpis = [
+    kpiTile("Total open actions", m.open),
+    kpiTile("Overdue actions", m.overdue, { tone: m.overdue>0?"crit":"" }),
+    kpiTile("Actions due in 7 days", m.dueSoon, { tone: m.dueSoon>0?"warn":"" }),
+    kpiTile("Completion rate", m.completionRate+"%", { sub: `${m.completed} of ${m.total} complete` }),
+  ].join("");
+
+  const tableHead = `<tr>${ACTION_SORT_COLUMNS.map(c=>`<th><button data-action="sort-actions" data-field="${c.field}">${c.label}${actionSortIndicator(c.field)}</button></th>`).join("")}<th></th></tr>`;
+  const body = actions.length ? actions.map(actionRowHTML).join("") : `
+    <tr><td colspan="9"><div class="empty-state">
+      <div class="icon">✓</div>
+      <h3>No actions match your ${chips.length ? "filters" : "search"}</h3>
+      <p>${chips.length ? "Try adjusting or clearing a filter below, or search for something else." : "Add a new action to get started."}</p>
+      ${chips.length ? `<button class="btn btn-sm" data-action="reset-action-filters" style="margin-top:12px;">Clear all filters</button>` : ""}
+    </div></td></tr>`;
+
+  document.getElementById("view-root").innerHTML = `
+    <div class="kpi-row">${kpis}</div>
+    ${renderActionsToolbar()}
+    ${renderActiveFilters(chips, "remove-action-filter", "reset-action-filters")}
+    <div style="display:flex; margin-bottom:8px;"><span class="result-count">Showing <strong>${actions.length}</strong> of ${state.actions.length} actions</span></div>
+    <div class="table-wrap">
+      <table class="register">
+        <thead>${tableHead}</thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>
+    <p class="mobile-scroll-hint">↔ Swipe the table sideways to see more columns</p>
+  `;
+}
+
+/* ---------- ADD / EDIT ACTION MODAL ---------- */
+function blankActionForm(){
+  return {
+    description:"", relatedItem: state.items[0] ? state.items[0].id : "",
+    owner: OWNERS[0], dueDate: offsetISO(14), status:"Not Started", priority:"Medium", completionPct:0,
+  };
+}
+function openAddAction(){
+  state.ui.modal = null; state.ui.detailId = null; // mutually exclusive with the RAID modal/drawer
+  state.ui.actionModal = { mode:"add", id:null };
+  state.ui.actionFormData = blankActionForm();
+  state.ui.actionFormErrors = {};
+  state.ui.actionFormDirty = false;
+  scheduleRender();
+}
+function openEditAction(id){
+  const a = findAction(id); if(!a) return;
+  state.ui.modal = null; state.ui.detailId = null;
+  state.ui.actionModal = { mode:"edit", id };
+  state.ui.actionFormData = Object.assign({}, a);
+  state.ui.actionFormErrors = {};
+  state.ui.actionFormDirty = false;
+  scheduleRender();
+}
+function closeActionModal(){
+  state.ui.actionModal = null; state.ui.actionFormData = null; state.ui.actionFormErrors = {}; state.ui.actionFormDirty = false;
+  scheduleRender();
+}
+/* Closing while the form has unsaved edits asks first; a pristine form
+   (nothing changed since it opened) closes immediately, same as before. */
+function requestCloseActionModal(){
+  if(state.ui.actionFormDirty){
+    askConfirm("Discard unsaved changes?", "This action's changes haven't been saved yet. Discard them?", "discard-action-modal", null, "Discard changes");
+  } else {
+    closeActionModal();
+  }
+}
+function validateActionForm(f){
+  const errs = {};
+  if(!f.description || !f.description.trim()) errs.description = "Description is required.";
+  if(!f.relatedItem) errs.relatedItem = "A related RAID item is required.";
+  if(!f.owner || !f.owner.trim()) errs.owner = "Owner is required.";
+  if(!f.dueDate) errs.dueDate = "Due date is required.";
+  if(!f.status) errs.status = "Status is required.";
+  if(!f.priority) errs.priority = "Priority is required.";
+  const pct = Number(f.completionPct);
+  if(isNaN(pct) || pct<0 || pct>100) errs.completionPct = "Completion must be a number between 0 and 100.";
+  return errs;
+}
+function saveActionForm(){
+  const f = state.ui.actionFormData;
+  const errs = validateActionForm(f);
+  state.ui.actionFormErrors = errs;
+  if(Object.keys(errs).length){ scheduleRender(); return; }
+
+  const nowISO = todayISO();
+  f.completionPct = Math.max(0, Math.min(100, Number(f.completionPct)||0));
+  // completion tracking: keep status and % in sync at the 100 / "Complete" boundary
+  if(f.completionPct===100) f.status = "Complete";
+  if(f.status==="Complete") f.completionPct = 100;
+
+  const svc = getActiveDataService();
+  const isAdd = state.ui.actionModal.mode==="add";
+  let task;
+  if(isAdd){
+    f.id = nextActionId();
+    f.createdDate = nowISO; f.lastUpdated = nowISO;
+    f.history = [{ date:nowISO, note:`Action logged against ${f.relatedItem} by ${f.owner}.` }];
+    task = svc.createAction(f);
+  } else {
+    const prev = findAction(state.ui.actionModal.id);
+    f.id = prev.id; f.createdDate = prev.createdDate;
+    f.lastUpdated = nowISO;
+    f.history = (prev.history||[]).concat([{ date:nowISO, note:"Action updated." }]);
+    task = svc.updateAction(f.id, f);
+  }
+  task.then(()=> refreshFromService()).then(()=>{
+    showToast(`${f.id} ${isAdd?"created":"updated"}.`);
+    closeActionModal();
+  }).catch(err=>{
+    showToast(err.message || "Couldn't save that action — please try again.");
+    scheduleRender();
+  });
+}
+function requestDeleteAction(id){
+  const a = findAction(id); if(!a) return;
+  askConfirm("Delete this action?", `Are you sure you want to delete <strong>${esc(a.id)} — ${esc(a.description)}</strong>? This action cannot be undone.`, "delete-action", id);
+}
+function renderActionModal(){
+  const root = document.getElementById("overlay-root");
+  if(!state.ui.actionModal) return;
+  const f = state.ui.actionFormData, errs = state.ui.actionFormErrors, mode = state.ui.actionModal.mode;
+  const itemOptions = state.items.slice().sort((a,b)=>a.id.localeCompare(b.id)).map(it=>({ value:it.id, label:`${it.id} — ${it.title.slice(0,48)}${it.title.length>48?'…':''}` }));
+  // If this action points at a RAID item that's since been deleted, add a
+  // placeholder option so the dropdown honestly reflects that — rather than
+  // silently defaulting to whatever option happens to sort first.
+  if(f.relatedItem && !findItem(f.relatedItem)){
+    itemOptions.unshift({ value:f.relatedItem, label:`${f.relatedItem} — (item deleted)` });
+  }
+
+  root.innerHTML += `
+  <div class="overlay" data-action="overlay-close-action">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="action-modal-title">
+      <div class="modal-head">
+        <div>
+          <h2 id="action-modal-title">${mode==="add"?"Add action":`Edit ${esc(f.id)}`}</h2>
+          <div class="type-tag">${mode==="add" ? `ID: ${esc(previewNextActionId())} (auto)` : "Action record"}</div>
+        </div>
+        <button class="icon-btn" data-action="close-action-modal" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          ${fieldWrap("af-description","Description",true,errs.description, `<textarea id="af-description" data-actionfield="description">${esc(f.description)}</textarea>`, true)}
+          ${fieldWrap("af-relatedItem","Related RAID item",true,errs.relatedItem, selectHTML("af-relatedItem","relatedItem", itemOptions, f.relatedItem, "actionfield"), true, "The RAID item this action follows up on.")}
+          ${fieldWrap("af-owner","Owner",true,errs.owner, `<input id="af-owner" list="owner-list" data-actionfield="owner" value="${esc(f.owner)}">`)}
+          ${fieldWrap("af-priority","Priority",true,errs.priority, selectHTML("af-priority","priority", PRIORITIES, f.priority, "actionfield"))}
+          ${fieldWrap("af-dueDate","Due date",true,errs.dueDate, `<input id="af-dueDate" type="date" data-actionfield="dueDate" value="${esc(f.dueDate)}">`)}
+          ${fieldWrap("af-status","Status",true,errs.status, selectHTML("af-status","status", ACTION_STATUSES_FULL, f.status, "actionfield"))}
+          ${fieldWrap("af-completionPct","Completion %",true,errs.completionPct, `<input id="af-completionPct" type="number" min="0" max="100" data-actionfield="completionPct" value="${esc(f.completionPct)}">`, false, "Reaching 100% (or status “Complete”) syncs the other automatically.")}
+        </div>
+        <datalist id="owner-list">${OWNERS.map(o=>`<option value="${esc(o)}">`).join("")}</datalist>
+      </div>
+      <div class="modal-foot">
+        ${mode==="edit" ? (findItem(f.relatedItem)
+          ? `<button class="btn btn-ghost" data-action="jump-to-related" data-id="${esc(f.relatedItem)}" style="margin-right:auto;">View related RAID item →</button>`
+          : `<span class="field-hint" style="margin-right:auto;">Related item was deleted — pick another above to relink.</span>`) : ""}
+        <button class="btn btn-ghost" data-action="close-action-modal">Cancel</button>
+        <button class="btn btn-primary" data-action="save-action">${mode==="add"?"Add action":"Save changes"}</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---------- MAIN VIEW DISPATCH ---------- */
+function renderView(){
+  const nav = state.ui.nav;
+  if(nav==="dashboard") return renderDashboard();
+  if(["register","risks","assumptions","issues","dependencies"].includes(nav)) return renderRegister();
+  if(nav==="actions") return renderActionsPage();
+  if(nav==="reports") return renderReports();
+  if(nav==="settings") return renderSettings();
+}
+
+/* ---------- SETTINGS: persistence status, appearance, reset, export/import ---------- */
+function fmtDateTime(iso){
+  if(!iso) return "—";
+  const d = new Date(iso);
+  if(isNaN(d)) return "—";
+  return d.toLocaleString(undefined, { year:"numeric", month:"short", day:"numeric", hour:"numeric", minute:"2-digit" });
+}
+function requestResetDemo(){
+  askConfirm(
+    "Reset to demo data?",
+    `This will permanently replace all <strong>${state.items.length} RAID item(s)</strong> and <strong>${state.actions.length} action(s)</strong> currently in your workspace with the original ${ORIGINAL_DEMO_ITEMS.length}-item demo dataset. This cannot be undone.`,
+    "reset-demo", null, "Reset data"
+  );
+}
+function csvEscape(v){
+  const s = v==null ? "" : String(v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+}
+function toCSV(rows, cols){
+  const lines = [cols.map(csvEscape).join(",")];
+  rows.forEach(r=>{ lines.push(cols.map(c=>csvEscape(r[c])).join(",")); });
+  return lines.join("\r\n");
+}
+const ITEM_CSV_COLUMNS = ["id","type","title","description","project","workstream","owner","status","priority",
+  "probability","impact","riskScore","riskLevel","dateRaised","dueDate","reviewDate","mitigation","createdDate","lastUpdated"];
+const ACTION_CSV_COLUMNS = ["id","description","relatedItem","owner","status","priority","completionPct","dueDate","createdDate","lastUpdated"];
+function generateExport(kind){
+  if(kind==="json"){
+    const payload = { schema:1, exportedAt:new Date().toISOString(), items:state.items, actions:state.actions };
+    return { kind, label:`Full backup — ${state.items.length} RAID items, ${state.actions.length} actions`, filename:"raid-log-tracker-backup.json", content: JSON.stringify(payload, null, 2) };
+  }
+  if(kind==="items-csv"){
+    return { kind, label:`RAID Register — ${state.items.length} rows`, filename:"raid-register.csv", content: toCSV(state.items, ITEM_CSV_COLUMNS) };
+  }
+  if(kind==="actions-csv"){
+    return { kind, label:`Actions — ${state.actions.length} rows`, filename:"actions.csv", content: toCSV(state.actions, ACTION_CSV_COLUMNS) };
+  }
+  return null;
+}
+function renderSettings(){
+  const theme = state.ui.theme;
+  const storageLine = state.dataMode==="demo"
+    ? `You're in Demo mode — changes here are in-memory only and won't be saved. Switch to Local storage above to keep your edits.`
+    : state.dataMode==="google"
+    ? `You're in Google Sheets mode — reads and writes go through the Data Service's Google Sheets connector (see Data Source above).`
+    : STORAGE_AVAILABLE
+    ? `Changes save automatically in this browser.${state.ui.lastSavedAt ? ` Last saved ${fmtDateTime(state.ui.lastSavedAt)}.` : " Nothing has changed yet since this loaded."}`
+    : `Local storage isn't available in this browser context, so changes won't be saved between visits — they'll last only until you leave or refresh this page.`;
+  const exp = state.ui.exportOutput;
+  const imp = state.ui.importPreview;
+  const impErr = state.ui.importError;
+
+  const dm = state.dataMode;
+  const sync = state.sync;
+  const googleStatusText = dm==="google"
+    ? (sync.status==="connected" ? "Connected" : sync.status==="syncing" ? "Connecting…" : "Not connected")
+    : "Not connected";
+
+  document.getElementById("view-root").innerHTML = `
+    <div class="panel chart-card" style="margin-bottom:16px;">
+      <div class="section-head"><h2>Data Source</h2><span class="hint">Where this app reads and writes RAID data</span></div>
+
+      <div class="data-source-modes">
+        <div class="data-source-mode-card ${dm==="local"?"active":""}" data-action="set-data-mode" data-mode="local">
+          <div class="name">Local storage</div>
+          <div class="desc">Saved in this browser. Used for development/testing when Google Sheets isn't connected.</div>
+        </div>
+        <div class="data-source-mode-card ${dm==="demo"?"active":""}" data-action="set-data-mode" data-mode="demo">
+          <div class="name">Demo data</div>
+          <div class="desc">The original sample dataset. Changes made here aren't saved.</div>
+        </div>
+        <div class="data-source-mode-card ${dm==="google"?"active":""}" data-action="set-data-mode" data-mode="google">
+          <div class="name">Google Sheets</div>
+          <div class="desc">Use a Google Sheet as the source of truth.</div>
+        </div>
+      </div>
+
+      <div class="data-source-status-row"><span class="k">Data source</span><span class="v">${esc(dataModeLabel(dm))}</span></div>
+      <div class="data-source-status-row"><span class="k">Google Sheet</span><span class="v">${esc(googleStatusText)}</span></div>
+      <div class="data-source-status-row"><span class="k">Last sync</span><span class="v">${sync.lastSyncedAt ? esc(fmtDateTime(sync.lastSyncedAt)) : "Never"}</span></div>
+      ${sync.error ? `<div class="field-error" style="margin-top:10px;">${esc(sync.error)}</div>` : ""}
+
+      <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:14px;">
+        <input id="ds-sheet-url" type="text" class="ds-sheet-url-input" placeholder="Apps Script Web App URL, e.g. https://script.google.com/macros/s/.../exec?token=..." value="${esc(googleSheetsDataServiceInstance.sheetUrl || "")}">
+        <button class="btn btn-sm" data-action="connect-google-sheet">Connect Google Sheet</button>
+        <button class="btn btn-sm" data-action="sync-now">Sync now</button>
+        ${dm==="google" ? `<button class="btn btn-sm btn-ghost" data-action="disconnect-google-sheet">Disconnect</button>` : ""}
+        ${dm!=="local" ? `<button class="btn btn-sm btn-ghost" data-action="set-data-mode" data-mode="local">Use Local mode</button>` : ""}
+      </div>
+      <p style="font-size:12px; color:var(--text-muted); margin:12px 0 0; max-width:680px; overflow-wrap:break-word;">
+        Paste the full URL of your deployed Google Apps Script Web App with your secret token appended as <code>?token=...</code> (not the plain Sheet URL). If this page is running inside a published Claude Artifact, connecting will still fail — that sandbox blocks all outbound network calls. Live sync only works once this file is hosted somewhere with real network access (your own server, GitHub Pages, etc.). See the deployment guide for the exact steps.
+      </p>
+    </div>
+
+    <div class="panel chart-card" style="margin-bottom:16px;">
+      <div class="section-head"><h2>Appearance</h2><span class="hint">Saved to this browser</span></div>
+      <div class="theme-switch" role="group" aria-label="Theme">
+        <button class="toggle-chip ${theme==="system"?"active":""}" data-action="set-theme" data-theme="system">Match system</button>
+        <button class="toggle-chip ${theme==="light"?"active":""}" data-action="set-theme" data-theme="light">Light</button>
+        <button class="toggle-chip ${theme==="dark"?"active":""}" data-action="set-theme" data-theme="dark">Dark</button>
+      </div>
+    </div>
+
+    <div class="panel chart-card" style="margin-bottom:16px;">
+      <div class="section-head"><h2>Data &amp; storage</h2><span class="hint">${state.items.length} RAID items · ${state.actions.length} actions</span></div>
+      <p style="font-size:13px; color:var(--text-secondary); margin:0 0 14px; max-width:640px;">${storageLine}</p>
+      <button class="btn btn-danger btn-sm" data-action="reset-demo-request">Reset to demo data</button>
+    </div>
+
+    <div class="panel chart-card" style="margin-bottom:16px;">
+      <div class="section-head"><h2>Export data</h2><span class="hint">JSON backup or CSV</span></div>
+      <div style="display:flex; flex-wrap:wrap; gap:10px; ${exp ? "margin-bottom:14px;" : ""}">
+        <button class="btn btn-sm" data-action="export" data-kind="json">Export full backup (JSON)</button>
+        <button class="btn btn-sm" data-action="export" data-kind="items-csv">Export RAID Register (CSV)</button>
+        <button class="btn btn-sm" data-action="export" data-kind="actions-csv">Export Actions (CSV)</button>
+      </div>
+      ${exp ? `
+        <div class="export-output">
+          <div class="section-head" style="margin-bottom:8px;">
+            <h3 style="font-size:12.5px;">${esc(exp.label)}</h3>
+            <button class="btn btn-ghost btn-sm" data-action="copy-export">⧉ Copy to clipboard</button>
+          </div>
+          <textarea id="export-output-textarea" class="export-textarea" readonly spellcheck="false">${esc(exp.content)}</textarea>
+          <div class="field-hint" style="margin-top:6px;">Copy this, then save it as <strong>${esc(exp.filename)}</strong>.</div>
+        </div>` : ""}
+    </div>
+
+    <div class="panel chart-card">
+      <div class="section-head"><h2>Import data</h2><span class="hint">From a JSON backup</span></div>
+      <p style="font-size:12.5px; color:var(--text-muted); margin:0 0 12px; max-width:640px;">
+        Only a full JSON backup exported from this app is supported. Importing <strong>replaces every RAID item and action currently in your workspace</strong> — you'll be asked to confirm before anything changes.
+      </p>
+      <input type="file" id="import-file-input" accept="application/json,.json" style="display:none">
+      <button class="btn btn-sm" data-action="trigger-import-file">Choose file…</button>
+      ${impErr ? `<div class="field-error" style="margin-top:10px;">${esc(impErr)}</div>` : ""}
+      ${imp ? `
+        <div class="import-preview" style="margin-top:14px; padding-top:14px; border-top:1px solid var(--border);">
+          <p style="font-size:13px; margin:0 0 12px;">
+            <strong>${esc(imp.fileName)}</strong> contains <strong>${imp.items.length}</strong> RAID item(s) and <strong>${imp.actions.length}</strong> action(s)${(imp.droppedItems||imp.droppedActions) ? `, skipping ${imp.droppedItems||0} invalid item(s) and ${imp.droppedActions||0} invalid action(s)` : ""}.
+          </p>
+          <div style="display:flex; gap:10px;">
+            <button class="btn btn-danger btn-sm" data-action="confirm-import">Replace my data</button>
+            <button class="btn btn-ghost btn-sm" data-action="cancel-import-preview">Cancel</button>
+          </div>
+        </div>` : ""}
+    </div>
+  `;
+}
+
+/* ---------- ADD / EDIT MODAL ---------- */
+function blankForm(type){
+  const project = Object.keys(PROJECTS)[0];
+  return {
+    type: type || "Risk",
+    title:"", description:"",
+    project, workstream: PROJECTS[project][0],
+    owner: OWNERS[0],
+    status: STATUS_BY_TYPE[type||"Risk"][0],
+    priority: "Medium",
+    probability: 3, impact: 3,
+    dateRaised: todayISO(), dueDate: offsetISO(14), reviewDate: offsetISO(14),
+    mitigation:"", action:"", actionOwner:"", actionDueDate:"", actionStatus:"Not Started", actionCompletion:0,
+    relatedItem:"", notes:"",
+  };
+}
+function openAddModal(){
+  const type = NAV_TYPE_MAP[state.ui.nav] || "Risk";
+  state.ui.detailId = null;
+  state.ui.actionModal = null;
+  state.ui.modal = { mode:"add", id:null };
+  state.ui.formData = blankForm(type);
+  state.ui.formErrors = {};
+  state.ui.formDirty = false;
+  scheduleRender();
+}
+function openEditModal(id){
+  const it = findItem(id); if(!it) return;
+  state.ui.detailId = null; // editing takes over from the detail drawer, if it was open
+  state.ui.actionModal = null;
+  state.ui.modal = { mode:"edit", id };
+  state.ui.formData = Object.assign({}, it);
+  state.ui.formErrors = {};
+  state.ui.formDirty = false;
+  scheduleRender();
+}
+function closeModal(){
+  state.ui.modal = null; state.ui.formData = null; state.ui.formErrors = {}; state.ui.formDirty = false;
+  scheduleRender();
+}
+/* Closing while the form has unsaved edits asks first; a pristine form
+   (nothing changed since it opened) closes immediately, same as before. */
+function requestCloseModal(){
+  if(state.ui.formDirty){
+    askConfirm("Discard unsaved changes?", "This RAID item's changes haven't been saved yet. Discard them?", "discard-modal", null, "Discard changes");
+  } else {
+    closeModal();
+  }
+}
+
+function validateForm(f){
+  const errs = {};
+  if(!f.title || !f.title.trim()) errs.title = "Title is required.";
+  if(!f.project) errs.project = "Project is required.";
+  if(!f.workstream) errs.workstream = "Workstream is required.";
+  if(!f.owner || !f.owner.trim()) errs.owner = "Owner is required.";
+  if(!f.status) errs.status = "Status is required.";
+  if(!f.dateRaised) errs.dateRaised = "Date raised is required.";
+  if(!f.dueDate) errs.dueDate = "Due date is required.";
+  if(f.type==="Risk"){
+    if(!f.probability) errs.probability = "Probability is required for risks.";
+    if(!f.impact) errs.impact = "Impact is required for risks.";
+  }
+  if(f.dueDate && f.dateRaised && f.dueDate < f.dateRaised){
+    errs.dueDate = "Due date can't be before the date raised.";
+  }
+  if(f.reviewDate && f.dateRaised && f.reviewDate < f.dateRaised){
+    errs.reviewDate = "Review date can't be before the date raised.";
+  }
+  if(f.actionDueDate && f.dateRaised && f.actionDueDate < f.dateRaised){
+    errs.actionDueDate = "Action due date can't be before the date raised.";
+  }
+  return errs;
+}
+
+function saveForm(){
+  const f = state.ui.formData;
+  const errs = validateForm(f);
+  state.ui.formErrors = errs;
+  if(Object.keys(errs).length){ scheduleRender(); return; }
+
+  const nowISO = todayISO();
+  if(f.type==="Risk"){
+    f.probability = Number(f.probability); f.impact = Number(f.impact);
+    f.riskScore = riskScore(f.probability, f.impact);
+    f.riskLevel = riskLevel(f.riskScore);
+    f.priority = f.riskLevel;
+  } else {
+    f.probability = null; f.impact = null; f.riskScore = null; f.riskLevel = null;
+  }
+  f.actionCompletion = Number(f.actionCompletion)||0;
+
+  const svc = getActiveDataService();
+  const isAdd = state.ui.modal.mode==="add";
+  let task;
+  if(isAdd){
+    f.id = nextId(f.type);
+    f.createdDate = nowISO; f.lastUpdated = nowISO;
+    f.history = [{ date:nowISO, note:`${f.type} logged by ${f.owner}.` }];
+    task = svc.createRaidItem(f);
+  } else {
+    const prev = findItem(state.ui.modal.id);
+    f.id = prev.id; f.createdDate = prev.createdDate;
+    f.lastUpdated = nowISO;
+    f.history = (prev.history||[]).concat([{ date:nowISO, note:"Item updated." }]);
+    task = svc.updateRaidItem(f.id, f);
+  }
+  task.then(()=> refreshFromService()).then(()=>{
+    showToast(`${f.id} ${isAdd?"created":"updated"}.`);
+    closeModal();
+  }).catch(err=>{
+    showToast(err.message || "Couldn't save that item — please try again.");
+    scheduleRender();
+  });
+}
+
+function riskPreviewBlock(f){
+  if(f.type!=="Risk") return "";
+  const score = riskScore(f.probability, f.impact);
+  const level = riskLevel(score);
+  return `
+    <div class="risk-score-preview">
+      <div class="rsp-stat">
+        <div class="rsp-k">Risk score</div>
+        <span class="num" style="color:${SEV_COLOR[level]}">${score}</span>
+      </div>
+      <div class="rsp-stat">
+        <div class="rsp-k">Risk level</div>
+        <div class="label" style="font-weight:700; font-size:15px; color:${SEV_COLOR[level]}">${level}</div>
+      </div>
+      <div class="rsp-stat">
+        <div class="rsp-k">Scale position</div>
+        ${scoreScaleSVG(score, 150)}
+      </div>
+      <div class="rsp-formula">
+        <div class="label">Probability (${f.probability} — ${esc(SCALE_LABELS[f.probability]||"")}) × Impact (${f.impact} — ${esc(SCALE_LABELS[f.impact]||"")})</div>
+        <div class="label">Priority auto-set to <strong style="color:${SEV_COLOR[level]}">${level}</strong> for risk records.</div>
+      </div>
+    </div>`;
+}
+
+function fieldWrap(id, label, required, errorMsg, innerHTML, spanTwo, hint){
+  return `<div class="form-field ${spanTwo?"span-2":""} ${errorMsg?"error":""}">
+    <label for="${id}">${esc(label)} ${required?'<span class="req">*</span>':""}</label>
+    ${innerHTML}
+    ${hint ? `<span class="field-hint">${hint}</span>` : ""}
+    ${errorMsg ? `<span class="field-error">${esc(errorMsg)}</span>` : ""}
+  </div>`;
+}
+function selectHTML(id, field, options, value, attrName){
+  attrName = attrName || "formfield";
+  return `<select id="${id}" data-${attrName}="${field}">${options.map(o=>{
+    const v = typeof o==="object" ? o.value : o;
+    const l = typeof o==="object" ? o.label : o;
+    return `<option value="${esc(v)}" ${String(value)===String(v)?"selected":""}>${esc(l)}</option>`;
+  }).join("")}</select>`;
+}
+
+function renderModal(){
+  const root = document.getElementById("overlay-root");
+  if(!state.ui.modal){ if(!state.ui.detailId && !state.ui.confirm) root.innerHTML = ""; return; }
+  const f = state.ui.formData, errs = state.ui.formErrors, mode = state.ui.modal.mode;
+  const workstreamOptions = PROJECTS[f.project] || [];
+  const scaleOptions = [1,2,3,4,5].map(n=>({ value:n, label:`${n} — ${SCALE_LABELS[n]}` }));
+
+  root.innerHTML = `
+  <div class="overlay" data-action="overlay-close">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-head">
+        <div>
+          <h2 id="modal-title">${mode==="add"?"Add RAID item":`Edit ${esc(f.id)}`}</h2>
+          <div class="type-tag">${mode==="add"?"Choose a type, then complete the record below.":`${f.type} record`}</div>
+        </div>
+        <button class="icon-btn" data-action="close-modal" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-section-title">Classification</div>
+          ${fieldWrap("f-id","ID",false,null, `<input id="f-id" value="${mode==='add' ? esc(previewNextId(f.type))+' (auto)' : esc(f.id)}" disabled>`, false, mode==="add" ? "Generated automatically on save." : "IDs are permanent once assigned.")}
+          ${fieldWrap("f-type","Type",true,null, selectHTML("f-type","type", TYPES, f.type))}
+          ${fieldWrap("f-status","Status",true,errs.status, selectHTML("f-status","status", STATUS_BY_TYPE[f.type], f.status))}
+          ${fieldWrap("f-project","Project",true,errs.project, selectHTML("f-project","project", Object.keys(PROJECTS), f.project))}
+          ${fieldWrap("f-workstream","Workstream",true,errs.workstream, selectHTML("f-workstream","workstream", workstreamOptions, f.workstream))}
+          ${fieldWrap("f-owner","Owner",true,errs.owner, `<input id="f-owner" list="owner-list" data-formfield="owner" value="${esc(f.owner)}">`, false, "Free text — pick an existing owner or type a new one.")}
+          ${f.type!=="Risk" ? fieldWrap("f-priority","Priority",true,null, selectHTML("f-priority","priority", PRIORITIES, f.priority)) : ""}
+
+          <div class="form-section-title">Details</div>
+          ${fieldWrap("f-title","Title",true,errs.title, `<input id="f-title" data-formfield="title" value="${esc(f.title)}" maxlength="140">`, true)}
+          ${fieldWrap("f-description","Description",false,null, `<textarea id="f-description" data-formfield="description">${esc(f.description)}</textarea>`, true)}
+
+          ${f.type==="Risk" ? `
+          <div class="form-section-title">Risk scoring</div>
+          ${fieldWrap("f-probability","Probability",true,errs.probability, selectHTML("f-probability","probability", scaleOptions, f.probability))}
+          ${fieldWrap("f-impact","Impact",true,errs.impact, selectHTML("f-impact","impact", scaleOptions, f.impact))}
+          ${riskPreviewBlock(f)}
+          ` : ""}
+
+          <div class="form-section-title">Dates</div>
+          ${fieldWrap("f-dateRaised","Date raised",true,errs.dateRaised, `<input id="f-dateRaised" type="date" data-formfield="dateRaised" value="${esc(f.dateRaised)}">`)}
+          ${fieldWrap("f-dueDate","Due date",true,errs.dueDate, `<input id="f-dueDate" type="date" data-formfield="dueDate" value="${esc(f.dueDate)}">`)}
+          ${fieldWrap("f-reviewDate","Review date",false,errs.reviewDate, `<input id="f-reviewDate" type="date" data-formfield="reviewDate" value="${esc(f.reviewDate||"")}">`)}
+
+          <div class="form-section-title">Response</div>
+          ${fieldWrap("f-mitigation", f.type==="Risk"?"Mitigation":"Resolution / response", false, null, `<textarea id="f-mitigation" data-formfield="mitigation">${esc(f.mitigation)}</textarea>`, true)}
+          ${fieldWrap("f-action","Action / next step",false,null, `<input id="f-action" data-formfield="action" value="${esc(f.action)}">`, true)}
+          ${fieldWrap("f-actionOwner","Action owner",false,null, `<input id="f-actionOwner" list="owner-list" data-formfield="actionOwner" value="${esc(f.actionOwner)}">`)}
+          ${fieldWrap("f-actionDueDate","Action due date",false,errs.actionDueDate, `<input id="f-actionDueDate" type="date" data-formfield="actionDueDate" value="${esc(f.actionDueDate||"")}">`)}
+          ${fieldWrap("f-actionStatus","Action status",false,null, selectHTML("f-actionStatus","actionStatus", ACTION_STATUSES, f.actionStatus))}
+          ${fieldWrap("f-actionCompletion","Action completion %",false,null, `<input id="f-actionCompletion" type="number" min="0" max="100" data-formfield="actionCompletion" value="${esc(f.actionCompletion)}">`)}
+
+          <div class="form-section-title">Other</div>
+          ${fieldWrap("f-relatedItem","Related item",false,null, `<input id="f-relatedItem" data-formfield="relatedItem" value="${esc(f.relatedItem)}" placeholder="e.g. RISK-002">`)}
+          ${fieldWrap("f-notes","Notes",false,null, `<textarea id="f-notes" data-formfield="notes">${esc(f.notes)}</textarea>`, true)}
+        </div>
+        <datalist id="owner-list">${OWNERS.map(o=>`<option value="${esc(o)}">`).join("")}</datalist>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" data-action="close-modal">Cancel</button>
+        <button class="btn btn-primary" data-action="save-item">${mode==="add"?"Add item":"Save changes"}</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---------- DETAIL DRAWER ---------- */
+function openDetail(id){ state.ui.actionModal = null; state.ui.detailId = id; scheduleRender(); }
+function closeDetail(){ state.ui.detailId = null; scheduleRender(); }
+
+function detailField(k,v){ return `<div class="dl-item"><div class="k">${esc(k)}</div><div class="v">${v}</div></div>`; }
+
+function renderDetail(){
+  const root = document.getElementById("overlay-root");
+  if(!state.ui.detailId){ return; }
+  const it = findItem(state.ui.detailId);
+  if(!it){ state.ui.detailId = null; return; }
+  const timing = dueTiming(it.dueDate, it.status);
+
+  root.innerHTML += `
+  <div class="drawer-overlay" data-action="close-drawer"></div>
+  <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <div class="drawer-head">
+      <div>
+        <div class="idline mono">${it.id} · ${esc(it.project)} / ${esc(it.workstream)}</div>
+        <h2 id="drawer-title">${esc(it.title)}</h2>
+        <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">${typePill(it.type)}${statusChip(it.status)}${it.type==="Risk"?sevPill(it.riskLevel):""}</div>
+      </div>
+      <button class="icon-btn" data-action="close-drawer" aria-label="Close">✕</button>
+    </div>
+    <div class="drawer-body">
+      <div class="drawer-section">
+        <h4>Description</h4>
+        <p>${esc(it.description) || "<span style='color:var(--text-muted)'>No description provided.</span>"}</p>
+      </div>
+      <div class="dl-grid">
+        ${detailField("Owner", esc(it.owner))}
+        ${detailField("Priority", it.type==="Risk" ? sevPill(it.riskLevel) : sevPill(it.priority))}
+        ${detailField("Date raised", fmtDate(it.dateRaised))}
+        ${detailField("Due date", `<span class="${timing==='overdue'?'due-cell overdue':timing==='soon'?'due-cell soon':''}">${fmtDate(it.dueDate)}</span>`)}
+        ${detailField("Review date", fmtDate(it.reviewDate))}
+        ${detailField("Last updated", fmtDate(it.lastUpdated))}
+      </div>
+
+      ${it.type==="Risk" ? `
+      <div class="drawer-section">
+        <h4>Risk scoring</h4>
+        <div class="risk-score-preview" style="grid-column:auto;">
+          <div class="rsp-stat">
+            <div class="rsp-k">Risk score</div>
+            <span class="num" style="color:${SEV_COLOR[it.riskLevel]}">${it.riskScore}</span>
+          </div>
+          <div class="rsp-stat">
+            <div class="rsp-k">Risk level</div>
+            <div class="label" style="font-weight:700; font-size:15px; color:${SEV_COLOR[it.riskLevel]}">${it.riskLevel}</div>
+          </div>
+          <div class="rsp-stat">
+            <div class="rsp-k">Scale position</div>
+            ${scoreScaleSVG(it.riskScore, 150)}
+          </div>
+          <div class="rsp-formula">
+            <div class="label">Probability ${it.probability} (${SCALE_LABELS[it.probability]}) × Impact ${it.impact} (${SCALE_LABELS[it.impact]})</div>
+          </div>
+        </div>
+      </div>` : ""}
+
+      <div class="drawer-section">
+        <h4>${it.type==="Risk"?"Mitigation":"Resolution / response"}</h4>
+        <p>${esc(it.mitigation) || "<span style='color:var(--text-muted)'>None recorded yet.</span>"}</p>
+      </div>
+
+      <div class="drawer-section">
+        <h4>Action</h4>
+        ${it.action ? `
+        <div class="dl-grid" style="margin-bottom:0;">
+          ${detailField("Action", esc(it.action))}
+          ${detailField("Action owner", esc(it.actionOwner||"—"))}
+          ${detailField("Action due", it.actionDueDate?fmtDate(it.actionDueDate):"—")}
+          ${detailField("Status", esc(it.actionStatus||"—"))}
+        </div>
+        <div style="margin-top:10px;">
+          <div class="bar-track" style="height:8px;"><span class="bar-fill" style="width:${it.actionCompletion||0}%; background:var(--action);"></span></div>
+          <div class="label" style="font-size:11px; color:var(--text-muted); margin-top:4px;">${it.actionCompletion||0}% complete</div>
+        </div>` : `<p style="color:var(--text-muted); font-size:13px;">No action currently logged against this item.</p>`}
+      </div>
+
+      <div class="drawer-section">
+        <h4>Actions register — linked to this item</h4>
+        ${(() => {
+          const linked = state.actions.filter(a=>a.relatedItem===it.id);
+          if(!linked.length) return `<p style="color:var(--text-muted); font-size:13px;">No entries in the Actions register reference this item yet.</p>`;
+          return linked.map(a=>`
+            <button class="btn btn-ghost btn-sm" data-action="edit-action" data-id="${a.id}" style="display:flex; width:100%; align-items:center; gap:8px; justify-content:flex-start; margin-bottom:4px; text-align:left;">
+              <span class="mono" style="font-size:11px; color:var(--text-muted);">${a.id}</span>
+              <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(a.description)}</span>
+              ${statusChip(a.status)}
+            </button>`).join("");
+        })()}
+      </div>
+
+      <div class="drawer-section">
+        <h4>Notes</h4>
+        <p>${esc(it.notes) || "<span style='color:var(--text-muted)'>No notes.</span>"}</p>
+      </div>
+
+      <div class="drawer-section">
+        <h4>Timeline</h4>
+        <div class="timeline">
+          ${(it.history||[]).map(h=>`<div class="timeline-row"><span class="tdot"></span><span class="tdate">${fmtDate(h.date)}</span><span>${esc(h.note)}</span></div>`).join("")}
+        </div>
+      </div>
+    </div>
+    <div class="drawer-foot">
+      <button class="btn btn-danger" data-action="delete-item" data-id="${it.id}">Delete</button>
+      <button class="btn btn-primary" data-action="edit-item" data-id="${it.id}">Edit item</button>
+    </div>
+  </aside>`;
+}
+
+/* ---------- CONFIRM DIALOG ---------- */
+function askConfirm(title, body, onConfirmName, payload, confirmLabel){
+  state.ui.confirm = { title, body, onConfirmName, payload, confirmLabel: confirmLabel || "Delete" };
+  scheduleRender();
+}
+function closeConfirm(){ state.ui.confirm = null; scheduleRender(); }
+
+function renderConfirm(){
+  const root = document.getElementById("overlay-root");
+  if(!state.ui.confirm) return;
+  const c = state.ui.confirm;
+  root.innerHTML += `
+  <div class="overlay" data-action="overlay-close-confirm">
+    <div class="modal confirm-box" role="alertdialog" aria-modal="true">
+      <div class="modal-head"><h2>${esc(c.title)}</h2><button class="icon-btn" data-action="cancel-confirm" aria-label="Close">✕</button></div>
+      <div class="modal-body">${c.body}</div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" data-action="cancel-confirm">Cancel</button>
+        <button class="btn btn-danger" data-action="confirm-yes" style="background:var(--sev-critical); color:#fff; border-color:transparent;">${esc(c.confirmLabel)}</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---------- SYNC CONFLICT DIALOG ---------- */
+function renderConflictModal(){
+  const root = document.getElementById("overlay-root");
+  if(!state.ui.conflict) return;
+  const c = state.ui.conflict;
+  root.innerHTML += `
+  <div class="overlay" data-action="overlay-close-conflict">
+    <div class="modal confirm-box" role="alertdialog" aria-modal="true">
+      <div class="modal-head"><h2>Sync conflict</h2><button class="icon-btn" data-action="close-conflict" aria-label="Close">✕</button></div>
+      <div class="modal-body">
+        <p style="margin:0 0 12px;"><strong>${esc(c.message)}</strong></p>
+        <p style="font-size:12.5px; color:var(--text-muted); margin:0;">Someone (or something) changed the Google Sheet since this app last synced. Choose how to proceed rather than silently overwriting either side.</p>
+        ${c.diffSummary ? `
+        <div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border); font-size:12.5px; display:flex; flex-direction:column; gap:4px;">
+          <span>${c.diffSummary.added} item(s) added on the sheet</span>
+          <span>${c.diffSummary.removed} item(s) only in your local copy</span>
+          <span>${c.diffSummary.changed} item(s) changed on both sides</span>
+        </div>` : ""}
+      </div>
+      <div class="modal-foot" style="flex-wrap:wrap;">
+        <button class="btn btn-ghost" data-action="conflict-review" style="margin-right:auto;">Review differences</button>
+        <button class="btn" data-action="conflict-keep-local">Keep local changes</button>
+        <button class="btn btn-primary" data-action="conflict-reload">Reload from Google Sheet</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function requestDelete(id){
+  const it = findItem(id); if(!it) return;
+  const linkedCount = state.actions.filter(a=>a.relatedItem===id).length;
+  const linkedNote = linkedCount
+    ? ` <strong>${linkedCount}</strong> action${linkedCount===1?"":"s"} in the Actions register ${linkedCount===1?"is":"are"} linked to it and will be left unlinked, not deleted.`
+    : "";
+  askConfirm("Delete this item?", `Are you sure you want to delete <strong>${esc(it.id)} — ${esc(it.title)}</strong>?${linkedNote} This action cannot be undone.`, "delete", id);
+}
+function performConfirm(){
+  const c = state.ui.confirm; if(!c) return;
+  const svc = getActiveDataService();
+
+  if(c.onConfirmName==="delete"){
+    svc.deleteRaidItem(c.payload).then(removed=>refreshFromService().then(()=>{
+      if(removed) showToast(`${removed.id} deleted.`);
+      if(state.ui.detailId===c.payload) state.ui.detailId = null;
+      if(state.ui.modal && state.ui.modal.id===c.payload) closeModal();
+    })).catch(err=> showToast(err.message || "Couldn't delete that item.")).finally(()=>{
+      state.ui.confirm = null; scheduleRender();
+    });
+    return;
+  }
+  if(c.onConfirmName==="delete-action"){
+    svc.deleteAction(c.payload).then(removed=>refreshFromService().then(()=>{
+      if(removed) showToast(`${removed.id} deleted.`);
+      if(state.ui.actionModal && state.ui.actionModal.id===c.payload) closeActionModal();
+    })).catch(err=> showToast(err.message || "Couldn't delete that action.")).finally(()=>{
+      state.ui.confirm = null; scheduleRender();
+    });
+    return;
+  }
+  if(c.onConfirmName==="reset-demo"){
+    // Resetting always lands back in Local mode with the baked-in demo
+    // dataset, regardless of which data source was active beforehand.
+    state.dataMode = "local"; _activeGoogleService = null; persistPrefs();
+    localDataServiceInstance.resetToDemo().then(()=>refreshFromService()).then(()=>{
+      state.ui.detailId = null; state.ui.modal = null; state.ui.actionModal = null;
+      state.ui.search = ""; state.ui.filters = defaultFilters();
+      state.ui.actionsSearch = ""; state.ui.actionsFilters = defaultActionFilters();
+      state.sync.status = STORAGE_AVAILABLE ? "synced" : "offline"; state.sync.lastSyncedAt = new Date().toISOString(); state.sync.error = null;
+      showToast("Demo data restored.");
+    }).finally(()=>{ state.ui.confirm = null; scheduleRender(); });
+    return;
+  }
+  if(c.onConfirmName==="import-data"){
+    const data = c.payload;
+    state.dataMode = "local"; _activeGoogleService = null; persistPrefs();
+    localDataServiceInstance.replaceAll(data.items, data.actions).then(()=>refreshFromService()).then(()=>{
+      state.ui.detailId = null; state.ui.modal = null; state.ui.actionModal = null;
+      state.ui.search = ""; state.ui.filters = defaultFilters();
+      state.ui.actionsSearch = ""; state.ui.actionsFilters = defaultActionFilters();
+      state.ui.importPreview = null; state.ui.importError = null;
+      state.sync.status = STORAGE_AVAILABLE ? "synced" : "offline"; state.sync.lastSyncedAt = new Date().toISOString(); state.sync.error = null;
+      showToast(`Imported ${state.items.length} RAID item${state.items.length===1?"":"s"} and ${state.actions.length} action${state.actions.length===1?"":"s"}.`);
+    }).finally(()=>{ state.ui.confirm = null; scheduleRender(); });
+    return;
+  }
+  if(c.onConfirmName==="discard-modal"){
+    closeModal();
+  }
+  if(c.onConfirmName==="discard-action-modal"){
+    closeActionModal();
+  }
+  state.ui.confirm = null;
+  scheduleRender();
+}
+
+/* ---------- TOAST ---------- */
+function renderToast(){
+  const root = document.getElementById("toast-root");
+  root.innerHTML = state.ui.toast ? `<div class="toast">${esc(state.ui.toast)}</div>` : "";
+}
+
+/* ---------- FULL RENDER ---------- */
+function fullRender(){
+  const app = document.getElementById("app");
+  app.innerHTML = `
+    ${renderSidebar()}
+    <div class="main">
+      ${renderTopbar()}
+      <div class="content"><div id="view-root"></div></div>
+    </div>`;
+  renderView();
+  document.getElementById("overlay-root").innerHTML = "";
+  renderModal();
+  renderActionModal();
+  renderDetail();
+  renderConfirm();
+  renderConflictModal();
+  renderToast();
+}
+
+function scheduleRender(){
+  const scrollSelectors = [".modal-body",".drawer-body",".table-wrap"];
+  const scrolls = scrollSelectors.map(sel=>{ const el=document.querySelector(sel); return el ? [sel, el.scrollTop] : null; }).filter(Boolean);
+  const active = document.activeElement;
+  let focusId=null, selStart=null, selEnd=null;
+  if(active && active.id){
+    focusId = active.id;
+    if("selectionStart" in active){ try{ selStart=active.selectionStart; selEnd=active.selectionEnd; }catch(e){} }
+  }
+  fullRender();
+  scrolls.forEach(([sel,top])=>{ const el=document.querySelector(sel); if(el) el.scrollTop = top; });
+  if(focusId){
+    const el = document.getElementById(focusId);
+    if(el){
+      el.focus();
+      if(selStart!=null && "setSelectionRange" in el){ try{ el.setSelectionRange(selStart, selEnd); }catch(e){} }
+    }
+  }
+}
+
+/* ---------- EVENT DELEGATION ---------- */
+document.addEventListener("click", (e)=>{
+  const el = e.target.closest("[data-action]");
+  if(!el) return;
+  const action = el.dataset.action;
+
+  if(action==="nav"){
+    state.ui.nav = el.dataset.nav;
+    state.ui.search = ""; state.ui.filters = defaultFilters();
+    state.ui.sidebarOpen = false;
+    scheduleRender(); return;
+  }
+  if(action==="toggle-sidebar"){ state.ui.sidebarOpen = !state.ui.sidebarOpen; scheduleRender(); return; }
+  if(action==="open-add"){ openAddModal(); return; }
+  if(action==="edit-item"){ e.stopPropagation(); openEditModal(el.dataset.id); return; }
+  if(action==="view-item"){ openDetail(el.dataset.id); return; }
+  if(action==="delete-item"){ e.stopPropagation(); requestDelete(el.dataset.id); return; }
+  if(action==="close-modal"){ requestCloseModal(); return; }
+  if(action==="close-drawer"){ closeDetail(); return; }
+  if(action==="overlay-close"){ if(e.target===el) requestCloseModal(); return; }
+  if(action==="save-item"){ saveForm(); return; }
+  if(action==="sort"){
+    const field = el.closest("[data-field]")?.dataset.field || el.dataset.field;
+    if(state.ui.sort.field===field){ state.ui.sort.dir = state.ui.sort.dir==="asc"?"desc":"asc"; }
+    else { state.ui.sort.field = field; state.ui.sort.dir = "asc"; }
+    scheduleRender(); return;
+  }
+  if(action==="toggle-chip"){
+    const chip = el.dataset.chip;
+    state.ui.filters[chip] = !state.ui.filters[chip];
+    scheduleRender(); return;
+  }
+  if(action==="reset-filters"){
+    state.ui.search = "";
+    state.ui.filters = defaultFilters();
+    scheduleRender(); return;
+  }
+  if(action==="remove-filter"){
+    const key = el.dataset.key;
+    if(key==="search") state.ui.search = "";
+    else if(key==="matrix"){ state.ui.filters.probability = ""; state.ui.filters.impact = ""; }
+    else if(key==="overdue") state.ui.filters.overdue = false;
+    else state.ui.filters[key] = "";
+    scheduleRender(); return;
+  }
+  if(action==="matrix-cell"){
+    state.ui.nav = "risks";
+    state.ui.search = "";
+    state.ui.filters = Object.assign(defaultFilters(), { probability:el.dataset.probability, impact:el.dataset.impact });
+    scheduleRender(); return;
+  }
+  if(action==="cancel-confirm"){ closeConfirm(); return; }
+  if(action==="overlay-close-confirm"){ if(e.target===el) closeConfirm(); return; }
+  if(action==="confirm-yes"){ performConfirm(); return; }
+
+  /* ---- Actions module ---- */
+  if(action==="open-add-action"){ openAddAction(); return; }
+  if(action==="edit-action"){ e.stopPropagation(); openEditAction(el.dataset.id); return; }
+  if(action==="delete-action"){ e.stopPropagation(); requestDeleteAction(el.dataset.id); return; }
+  if(action==="close-action-modal"){ requestCloseActionModal(); return; }
+  if(action==="overlay-close-action"){ if(e.target===el) requestCloseActionModal(); return; }
+  if(action==="save-action"){ saveActionForm(); return; }
+  if(action==="jump-to-related"){
+    const rid = el.dataset.id;
+    if(rid && findItem(rid)){ closeActionModal(); openDetail(rid); }
+    else showToast("That RAID item no longer exists.");
+    return;
+  }
+  if(action==="sort-actions"){
+    const field = el.dataset.field;
+    if(state.ui.actionsSort.field===field){ state.ui.actionsSort.dir = state.ui.actionsSort.dir==="asc"?"desc":"asc"; }
+    else { state.ui.actionsSort.field = field; state.ui.actionsSort.dir = "asc"; }
+    scheduleRender(); return;
+  }
+  if(action==="toggle-action-chip"){
+    const chip = el.dataset.chip;
+    state.ui.actionsFilters[chip] = !state.ui.actionsFilters[chip];
+    scheduleRender(); return;
+  }
+  if(action==="reset-action-filters"){
+    state.ui.actionsSearch = "";
+    state.ui.actionsFilters = defaultActionFilters();
+    scheduleRender(); return;
+  }
+  if(action==="remove-action-filter"){
+    const key = el.dataset.key;
+    if(key==="search") state.ui.actionsSearch = "";
+    else if(key==="overdue") state.ui.actionsFilters.overdue = false;
+    else state.ui.actionsFilters[key] = "";
+    scheduleRender(); return;
+  }
+
+  /* ---- Settings: appearance, reset, export/import ---- */
+  if(action==="set-theme"){
+    const theme = el.dataset.theme;
+    state.ui.theme = theme;
+    applyTheme(theme);
+    persistPrefs();
+    scheduleRender(); return;
+  }
+  if(action==="reset-demo-request"){ requestResetDemo(); return; }
+  if(action==="export"){
+    state.ui.exportOutput = generateExport(el.dataset.kind);
+    scheduleRender(); return;
+  }
+  if(action==="copy-export"){
+    const out = state.ui.exportOutput; if(!out) return;
+    const ta = document.getElementById("export-output-textarea");
+    const done = ()=>showToast("Copied to clipboard.");
+    const fallback = ()=>{
+      if(ta){ ta.focus(); ta.select(); try{ if(document.execCommand("copy")){ done(); return; } }catch(err){} }
+      showToast("Couldn't copy automatically — select the text and copy it manually.");
+    };
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(out.content).then(done).catch(fallback);
+    } else fallback();
+    return;
+  }
+  if(action==="trigger-import-file"){
+    const input = document.getElementById("import-file-input");
+    if(input) input.click();
+    return;
+  }
+  if(action==="confirm-import"){
+    const p = state.ui.importPreview; if(!p) return;
+    const droppedNote = (p.droppedItems || p.droppedActions)
+      ? ` ${p.droppedItems||0} invalid item(s) and ${p.droppedActions||0} invalid action(s) in that file will be skipped.`
+      : "";
+    askConfirm(
+      "Replace all data with this import?",
+      `This will replace <strong>${state.items.length} RAID item(s)</strong> and <strong>${state.actions.length} action(s)</strong> currently in your workspace with <strong>${p.items.length} item(s)</strong> and <strong>${p.actions.length} action(s)</strong> from “${esc(p.fileName)}”.${droppedNote} This cannot be undone.`,
+      "import-data", { items:p.items, actions:p.actions }, "Replace data"
+    );
+    return;
+  }
+  if(action==="cancel-import-preview"){
+    state.ui.importPreview = null; state.ui.importError = null;
+    scheduleRender(); return;
+  }
+
+  /* ---- Settings: Data Source (data service / Google Sheets) ---- */
+  if(action==="set-data-mode"){ setDataMode(el.dataset.mode); return; }
+  if(action==="connect-google-sheet"){
+    const input = document.getElementById("ds-sheet-url");
+    connectGoogleSheet(input ? input.value.trim() : "");
+    return;
+  }
+  if(action==="disconnect-google-sheet"){ disconnectGoogleSheet(); return; }
+  if(action==="sync-now"){ e.stopPropagation(); syncNow(); return; }
+  if(action==="open-data-source-settings"){ state.ui.nav = "settings"; state.ui.sidebarOpen = false; scheduleRender(); return; }
+  if(action==="close-conflict"){ closeConflictModal(); return; }
+  if(action==="overlay-close-conflict"){ if(e.target===el) closeConflictModal(); return; }
+  if(action==="conflict-reload"){ resolveConflict("reload"); return; }
+  if(action==="conflict-keep-local"){ resolveConflict("keep-local"); return; }
+  if(action==="conflict-review"){ resolveConflict("review"); return; }
+});
+
+document.addEventListener("input", (e)=>{
+  const t = e.target;
+  if(t.id==="global-search-input"){
+    // The topbar search box mirrors whichever list is showing: Actions on
+    // the Actions page, the RAID register everywhere else it's shown.
+    if(state.ui.nav==="actions") state.ui.actionsSearch = t.value;
+    else state.ui.search = t.value;
+    scheduleRender(); return;
+  }
+  if(t.id==="register-search-input"){
+    state.ui.search = t.value;
+    scheduleRender(); return;
+  }
+  if(t.id==="actions-search-input"){
+    state.ui.actionsSearch = t.value;
+    scheduleRender(); return;
+  }
+  if(t.dataset && t.dataset.actionfield){
+    // No action-form field has UI that depends on another live, so plain
+    // state mutation (no re-render) is always safe here — see the note by
+    // the RAID form's "change" handler for why that matters on click safety.
+    if(!state.ui.actionFormData) return;
+    state.ui.actionFormData[t.dataset.actionfield] = t.value;
+    state.ui.actionFormDirty = true;
+    return;
+  }
+  if(t.dataset && t.dataset.formfield){
+    const key = t.dataset.formfield;
+    if(!state.ui.formData) return;
+    if(key==="actionCompletion"){
+      let v = Number(t.value); if(isNaN(v)) v = 0; v = Math.max(0, Math.min(100, v));
+      state.ui.formData[key] = v;
+    } else {
+      state.ui.formData[key] = t.value;
+    }
+    state.ui.formDirty = true;
+    // live-recompute risk preview / dependent options without disturbing typing
+    if(key==="probability" || key==="impact" || key==="type" || key==="project"){
+      scheduleRender();
+    }
+    return;
+  }
+});
+
+document.addEventListener("change", (e)=>{
+  const t = e.target;
+  if(t.id==="import-file-input"){
+    const file = t.files && t.files[0];
+    t.value = ""; // allow re-selecting the same file name after a cancel/error
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      let parsed;
+      try{ parsed = JSON.parse(String(reader.result)); }
+      catch(err){ state.ui.importError = "That file isn't valid JSON."; state.ui.importPreview = null; scheduleRender(); return; }
+      const result = validateAndNormalizeDataset(parsed);
+      if(!result.ok){ state.ui.importError = result.reason; state.ui.importPreview = null; scheduleRender(); return; }
+      state.ui.importError = null;
+      state.ui.importPreview = { items:result.items, actions:result.actions, droppedItems:result.droppedItems, droppedActions:result.droppedActions, fileName:file.name };
+      scheduleRender();
+    };
+    reader.onerror = ()=>{ state.ui.importError = "Couldn't read that file."; state.ui.importPreview = null; scheduleRender(); };
+    reader.readAsText(file);
+    return;
+  }
+  if(t.dataset && t.dataset.filter){
+    const key = t.dataset.filter;
+    state.ui.filters[key] = t.value;
+    // Workstream is a sub-choice of Project — when the project changes, drop
+    // a now-invalid workstream selection rather than silently showing zero
+    // results for an impossible project+workstream combination.
+    if(key==="project"){
+      const valid = t.value ? (PROJECTS[t.value]||[]) : uniqueSorted(state.items.map(i=>i.workstream));
+      if(state.ui.filters.workstream && !valid.includes(state.ui.filters.workstream)) state.ui.filters.workstream = "";
+    }
+    scheduleRender(); return;
+  }
+  if(t.dataset && t.dataset.actionFilter){
+    state.ui.actionsFilters[t.dataset.actionFilter] = t.value;
+    scheduleRender(); return;
+  }
+  if(t.dataset && t.dataset.actionfield){
+    if(!state.ui.actionFormData) return;
+    state.ui.actionFormData[t.dataset.actionfield] = t.value;
+    state.ui.actionFormDirty = true;
+    return; // no dependent UI to recompute — safe to skip re-render (see input handler note)
+  }
+  if(t.dataset && t.dataset.formfield){
+    const key = t.dataset.formfield;
+    if(!state.ui.formData) return;
+    let v = t.value;
+    if(key==="probability" || key==="impact") v = Number(v);
+    state.ui.formData[key] = v;
+    state.ui.formDirty = true;
+    // Only fields whose CHANGE must be reflected elsewhere in the form trigger a re-render here.
+    // Plain text/date/number fields are already captured via the "input" listener without
+    // re-rendering, on purpose: re-rendering on a text field's blur-triggered "change" event can
+    // detach the very element a subsequent click is targeting (mousedown blurs the field, firing
+    // "change" mid-click, replacing the DOM before mouseup) — which silently swallows the click.
+    let needsRerender = false;
+    if(key==="type"){
+      const newType = v;
+      state.ui.formData.status = STATUS_BY_TYPE[newType][0];
+      if(newType==="Risk"){
+        state.ui.formData.probability = state.ui.formData.probability || 3;
+        state.ui.formData.impact = state.ui.formData.impact || 3;
+      }
+      needsRerender = true;
+    }
+    if(key==="project"){
+      state.ui.formData.workstream = PROJECTS[v][0];
+      needsRerender = true;
+    }
+    if(key==="probability" || key==="impact") needsRerender = true;
+    if(needsRerender) scheduleRender();
+    return;
+  }
+});
+
+document.addEventListener("keydown", (e)=>{
+  if(e.key==="Escape"){
+    if(state.ui.conflict){ closeConflictModal(); return; }
+    if(state.ui.confirm){ closeConfirm(); return; }
+    if(state.ui.detailId){ closeDetail(); return; }
+    if(state.ui.modal){ requestCloseModal(); return; }
+    if(state.ui.actionModal){ requestCloseActionModal(); return; }
+  }
+});
+
+/* ---------- INIT ---------- */
+fullRender();
+// First-time visitor: seed storage immediately so the exact same records
+// (with their original dates) are still there on the next refresh, rather
+// than silently regenerating fresh demo data anchored to "today" every time.
+if(boot.canPersist && boot.firstRun) persistData();
+// Surface any boot-time notice (invalid/corrupt stored data, or storage
+// being unavailable) only after everything above has finished initializing.
+if(boot.notice) showToast(boot.notice);
+</script>
