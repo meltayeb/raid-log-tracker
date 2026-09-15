@@ -616,19 +616,24 @@ function probeStorage(){
 const STORAGE_AVAILABLE = probeStorage();
 
 function loadPrefs(){
-  const fallback = { theme:"system", dataMode:"local" };
+  const fallback = { theme:"system", dataMode:"local", googleSheetUrl:null };
   if(!STORAGE_AVAILABLE) return fallback;
   try{
     const raw = window.localStorage.getItem(PREFS_KEY);
     if(!raw) return fallback;
     const parsed = JSON.parse(raw);
     const theme = (parsed && ["system","light","dark"].includes(parsed.theme)) ? parsed.theme : "system";
-    // "google" is deliberately never resumed on reload — a fresh page load
-    // always re-attempts from Local mode (see the Data Service section below
-    // for why: a live Google Sheets session can't safely resume without a
-    // real backend connection).
-    const dataMode = (parsed && parsed.dataMode==="demo") ? "demo" : "local";
-    return { theme, dataMode };
+    const googleSheetUrl = (parsed && typeof parsed.googleSheetUrl==="string" && parsed.googleSheetUrl.trim())
+      ? parsed.googleSheetUrl.trim() : null;
+    // Google mode is only resumed automatically if we also have a saved Web App URL to
+    // reconnect with — otherwise there's nothing to reconnect to, so fall back to Local.
+    // A reconnect attempt happens at INIT time (see bottom of file): boot still renders
+    // cached local data instantly, then swaps over live if the reconnect succeeds, or
+    // stays on Local (with the URL still remembered for one-click retry) if it doesn't.
+    let dataMode = "local";
+    if(parsed && parsed.dataMode==="demo") dataMode = "demo";
+    else if(parsed && parsed.dataMode==="google" && googleSheetUrl) dataMode = "google";
+    return { theme, dataMode, googleSheetUrl };
   }catch(e){ return fallback; }
 }
 function applyTheme(theme){
@@ -1674,6 +1679,10 @@ class MockGoogleSheetsDataService {
 const localDataServiceInstance = new LocalDataService();
 const demoDataServiceInstance = new DemoDataService();
 const googleSheetsDataServiceInstance = new GoogleSheetsDataService();
+// Pre-load the last-used Web App URL (if any) so Settings → Data Source shows it
+// immediately and the auto-reconnect attempt at INIT time (bottom of file) has it
+// to work with, even before/without a successful connection this session.
+if(initialPrefs.googleSheetUrl) googleSheetsDataServiceInstance.sheetUrl = initialPrefs.googleSheetUrl;
 let _activeGoogleService = null;   // whichever Google-mode instance actually connected (real or test-installed mock)
 let _testGoogleOverride = null;    // set by window.__RAID_TEST__.installMockGoogleSheets() for integration tests
 function getActiveDataService(){
@@ -1722,7 +1731,8 @@ function setDataMode(mode){
     scheduleRender();
   });
 }
-function connectGoogleSheet(url){
+function connectGoogleSheet(url, opts){
+  const auto = !!(opts && opts.auto); // true only for the silent reconnect attempt at boot
   state.ui.conflict = null;
   state.sync.status = "syncing"; state.sync.error = null;
   scheduleRender();
@@ -1735,16 +1745,20 @@ function connectGoogleSheet(url){
     resyncIdCounters(state.items, state.actions);
     state.ui.detailId = null; state.ui.modal = null; state.ui.actionModal = null;
     state.sync.status = "connected"; state.sync.lastSyncedAt = new Date().toISOString(); state.sync.error = null;
-    showToast("Connected to Google Sheets.");
+    showToast(auto ? "Reconnected to Google Sheets." : "Connected to Google Sheets.");
     scheduleRender();
   }).catch(err=>{
     // Requirement: keep working in Local mode until Google Sheets access is available.
+    // The saved URL is deliberately NOT cleared here (see persistPrefs) so the next visit,
+    // or a manual click of "Sync now"/"Connect", can retry without re-pasting anything.
     state.dataMode = "local";
     _activeGoogleService = null;
     persistPrefs();
-    state.sync.status = "error";
+    state.sync.status = auto ? "offline" : "error";
     state.sync.error = err.message || String(err);
-    showToast("Couldn't connect to Google Sheets — staying in Local mode.");
+    showToast(auto
+      ? "Couldn't reconnect to Google Sheets automatically — working from local data. Go to Settings → Data Source to retry."
+      : "Couldn't connect to Google Sheets — staying in Local mode.");
     scheduleRender();
   });
 }
@@ -1853,7 +1867,9 @@ const state = {
   actions: boot.actions,
   dataMode: initialPrefs.dataMode,
   sync: {
-    status: initialPrefs.dataMode==="demo" ? "offline" : (STORAGE_AVAILABLE ? "synced" : "offline"),
+    status: initialPrefs.dataMode==="demo" ? "offline"
+      : initialPrefs.dataMode==="google" ? "syncing"
+      : (STORAGE_AVAILABLE ? "synced" : "offline"),
     lastSyncedAt: null,
     error: null,
   },
@@ -1909,8 +1925,18 @@ function persistData(){
 }
 function persistPrefs(){
   if(!STORAGE_AVAILABLE) return false;
-  try{ window.localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: state.ui.theme })); return true; }
-  catch(e){ return false; }
+  try{
+    window.localStorage.setItem(PREFS_KEY, JSON.stringify({
+      theme: state.ui.theme,
+      dataMode: state.dataMode,
+      // Remembered independently of whether dataMode is currently "google": a failed
+      // reconnect falls back to Local but keeps the URL so Settings pre-fills it and
+      // reconnecting is a single click, not a re-paste. Explicit "Disconnect" is the
+      // only thing that clears it (it nulls the service's sheetUrl before this runs).
+      googleSheetUrl: googleSheetsDataServiceInstance.sheetUrl || null,
+    }));
+    return true;
+  }catch(e){ return false; }
 }
 
 /* ---------- toast ---------- */
@@ -3825,4 +3851,13 @@ if(boot.canPersist && boot.firstRun) persistData();
 // Surface any boot-time notice (invalid/corrupt stored data, or storage
 // being unavailable) only after everything above has finished initializing.
 if(boot.notice) showToast(boot.notice);
+// Auto-reconnect to Google Sheets: the page has already rendered with cached
+// local data above, so there's something on screen immediately. If the user
+// was last connected to a Sheet, silently retry that connection now and swap
+// the data over live on success — or fall back to Local (already the state
+// we booted into) with an explanatory toast if it fails, e.g. this copy is
+// being viewed inside a sandboxed preview with no outbound network access.
+if(initialPrefs.dataMode==="google" && initialPrefs.googleSheetUrl){
+  connectGoogleSheet(initialPrefs.googleSheetUrl, { auto:true });
+}
 </script>
